@@ -27,8 +27,12 @@ jobs:
       - name: Build React Application
         run: npm run build
 
+      - name: Create .nojekyll File
+        run: touch dist/.nojekyll
+
       - name: Deploy to GitHub Pages Branch
         uses: JamesIves/github-pages-deploy-action@v4
         with:
+          token: ${{ secrets.GITHUB_TOKEN }}
           folder: dist
           branch: gh-pages

@@ -5,7 +5,7 @@ import path from 'path';
 // https://vitejs.dev/config/
 export default defineConfig({
   plugins: [react()],
-  base: '/Google-Sahil-Insta/',
+  base: './', // RELATIVE BASE PATH FOR 100% BULLETPROOF GITHUB PAGES ROUTING
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),

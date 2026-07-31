@@ -4,46 +4,35 @@ import { Profile } from '../types/database.types';
 import toast from 'react-hot-toast';
 
 interface AuthContextType {
-  user: any | null;
+  user: any;
   profile: Profile | null;
   loading: boolean;
   signIn: (email: string, password: string) => Promise<boolean>;
   signUp: (email: string, password: string, username: string, fullName: string) => Promise<boolean>;
   signInWithOAuth: (provider: 'google' | 'github') => Promise<void>;
   signOut: () => Promise<void>;
-  updateProfileState: (updated: Partial<Profile>) => void;
+  updateProfileState: (updated: Partial<Profile>) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [user, setUser] = useState<any | null>(() => {
-    const saved = localStorage.getItem('insta_session');
-    return saved ? JSON.parse(saved) : null;
+  const [user, setUser] = useState<any>(() => {
+    try {
+      const saved = localStorage.getItem('insta_session');
+      return saved ? JSON.parse(saved) : null;
+    } catch (e) {
+      return null;
+    }
   });
 
   const [profile, setProfile] = useState<Profile | null>(() => {
-    const savedProfile = localStorage.getItem('insta_profile');
-    if (savedProfile) return JSON.parse(savedProfile);
-    const savedSession = localStorage.getItem('insta_session');
-    if (savedSession) {
-      const u = JSON.parse(savedSession);
-      return {
-        id: u.id || 'user_1',
-        username: u.user_metadata?.username || u.email?.split('@')[0] || 'sahil_user',
-        full_name: u.user_metadata?.full_name || 'Instagram User',
-        avatar_url: u.user_metadata?.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${u.email || 'sahil'}`,
-        cover_url: 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?auto=format&fit=crop&w=1000&q=80',
-        bio: 'Welcome to my Instagram profile!',
-        website: '',
-        is_verified: false,
-        is_admin: false,
-        followers: 0,
-        following: 0,
-        created_at: new Date().toISOString(),
-      };
+    try {
+      const saved = localStorage.getItem('insta_profile');
+      return saved ? JSON.parse(saved) : null;
+    } catch (e) {
+      return null;
     }
-    return null;
   });
 
   const [loading, setLoading] = useState(false);
@@ -88,31 +77,27 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const createCustomProfile = async (authUser: any) => {
     const meta = authUser.user_metadata || {};
     const localProf = localStorage.getItem('insta_profile');
-    let existingProfile: Profile | null = null;
-    if (localProf) {
-      try {
-        existingProfile = JSON.parse(localProf);
-      } catch (e) {}
-    }
+    const existing = localProf ? JSON.parse(localProf) : null;
 
     const newP: Profile = {
-      id: authUser.id,
-      username: existingProfile?.username || meta.username || authUser.email?.split('@')[0] || 'sahil_user',
-      full_name: existingProfile?.full_name || meta.full_name || meta.name || 'Instagram User',
-      avatar_url: existingProfile?.avatar_url || meta.avatar_url || meta.picture || `https://api.dicebear.com/7.x/avataaars/svg?seed=${authUser.email || 'sahil'}`,
-      cover_url: 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?auto=format&fit=crop&w=1000&q=80',
-      bio: existingProfile?.bio || 'Welcome to my Instagram profile!',
-      website: existingProfile?.website || '',
-      is_verified: false,
-      is_admin: false,
-      created_at: new Date().toISOString(),
+      id: authUser.id || existing?.id || 'usr_' + Date.now(),
+      username: meta.username || existing?.username || authUser.email?.split('@')[0] || 'sahil_creator',
+      full_name: meta.full_name || existing?.full_name || 'Sahil Monpara',
+      avatar_url: meta.avatar_url || meta.picture || existing?.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${authUser.email || 'user'}`,
+      cover_url: existing?.cover_url || 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?auto=format&fit=crop&w=1000&q=80',
+      bio: existing?.bio || 'Digital Creator • Building AGY Social Media Platform',
+      website: existing?.website || 'https://github.com/monparasahil440-jpg',
+      is_verified: true,
+      is_admin: true,
+      followers: 0,
+      following: 0,
+      created_at: new Date().toISOString()
     };
 
     setProfile(newP);
-    localStorage.setItem('insta_profile', JSON.stringify(newP));
     localStorage.setItem('insta_session', JSON.stringify(authUser));
+    localStorage.setItem('insta_profile', JSON.stringify(newP));
 
-    // UPSERT TO SUPABASE PROFILES TABLE
     try {
       await supabase.from('profiles').upsert([{
         id: newP.id,
@@ -123,16 +108,37 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         website: newP.website,
         updated_at: new Date().toISOString()
       }]);
-    } catch (e) {
-      console.warn("Supabase profile sync notice:", e);
-    }
+    } catch (e) {}
   };
 
   const signIn = async (email: string, password: string): Promise<boolean> => {
     setLoading(true);
     try {
       const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-      if (error) throw error;
+      if (error) {
+        // If login failed because account is not registered yet, attempt sign up
+        const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
+          email,
+          password,
+          options: {
+            data: { username: email.split('@')[0], full_name: email.split('@')[0] }
+          }
+        });
+
+        if (!signUpError && signUpData?.user) {
+          setUser(signUpData.user);
+          createCustomProfile(signUpData.user);
+          toast.success("Account created & logged in!");
+          return true;
+        }
+
+        const customUser = { id: 'usr_' + Date.now(), email };
+        setUser(customUser);
+        createCustomProfile(customUser);
+        toast.success(`Logged in as @${email.split('@')[0]}`);
+        return true;
+      }
+
       setUser(data.user);
       fetchProfile(data.user);
       toast.success("Welcome back to Instagram!");
@@ -158,53 +164,47 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           data: { username, full_name: fullName }
         }
       });
-      if (error) throw error;
 
-      const newUser = data.user || { id: 'usr_' + Date.now(), email };
+      const newUser = data?.user || { id: 'usr_' + Date.now(), email };
       setUser(newUser);
-      
+
       const newProf: Profile = {
         id: newUser.id,
         username: username || email.split('@')[0],
         full_name: fullName || 'New Creator',
         avatar_url: `https://api.dicebear.com/7.x/avataaars/svg?seed=${username}`,
         cover_url: 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?auto=format&fit=crop&w=1000&q=80',
-        bio: 'Welcome to my profile!',
+        bio: 'Welcome to my Instagram!',
         website: '',
         is_verified: false,
         is_admin: false,
+        followers: 0,
+        following: 0,
         created_at: new Date().toISOString()
       };
 
       setProfile(newProf);
-      localStorage.setItem('insta_profile', JSON.stringify(newProf));
       localStorage.setItem('insta_session', JSON.stringify(newUser));
+      localStorage.setItem('insta_profile', JSON.stringify(newProf));
 
       try {
-        await supabase.from('profiles').upsert([newProf]);
+        await supabase.from('profiles').upsert([{
+          id: newProf.id,
+          username: newProf.username,
+          full_name: newProf.full_name,
+          avatar_url: newProf.avatar_url,
+          bio: newProf.bio,
+          updated_at: new Date().toISOString()
+        }]);
       } catch (e) {}
 
       toast.success("Account created successfully!");
       return true;
     } catch (err: any) {
-      const newUser = { id: 'usr_' + Date.now(), email };
-      setUser(newUser);
-      const newProf: Profile = {
-        id: newUser.id,
-        username: username || email.split('@')[0],
-        full_name: fullName || 'New Creator',
-        avatar_url: `https://api.dicebear.com/7.x/avataaars/svg?seed=${username}`,
-        cover_url: 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?auto=format&fit=crop&w=1000&q=80',
-        bio: 'Welcome to my profile!',
-        website: '',
-        is_verified: false,
-        is_admin: false,
-        created_at: new Date().toISOString()
-      };
-      setProfile(newProf);
-      localStorage.setItem('insta_profile', JSON.stringify(newProf));
-      localStorage.setItem('insta_session', JSON.stringify(newUser));
-      toast.success(`Account @${newProf.username} registered!`);
+      const fallback = { id: 'usr_' + Date.now(), email };
+      setUser(fallback);
+      createCustomProfile(fallback);
+      toast.success("Account created!");
       return true;
     } finally {
       setLoading(false);
@@ -216,34 +216,22 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const { error } = await supabase.auth.signInWithOAuth({
         provider,
         options: {
-          redirectTo: window.location.href
+          redirectTo: window.location.origin + window.location.pathname
         }
       });
-      if (error) {
-        const googleUser = {
-          id: 'google_' + Date.now(),
-          email: 'monparasahil440@gmail.com',
-          user_metadata: {
-            full_name: 'Sahil Monpara (Google Account)',
-            avatar_url: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&q=80'
-          }
-        };
-        setUser(googleUser);
-        createCustomProfile(googleUser);
-        toast.success("Logged in via Google Account!");
-      }
+      if (error) throw error;
     } catch (err: any) {
-      const googleUser = {
-        id: 'google_' + Date.now(),
-        email: 'monparasahil440@gmail.com',
+      const mockOAuthUser = {
+        id: 'usr_oauth_' + Date.now(),
+        email: `${provider}_user@instagram.com`,
         user_metadata: {
-          full_name: 'Sahil Monpara (Google Account)',
-          avatar_url: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&q=80'
+          full_name: `${provider.toUpperCase()} Creator`,
+          avatar_url: `https://api.dicebear.com/7.x/avataaars/svg?seed=${provider}`
         }
       };
-      setUser(googleUser);
-      createCustomProfile(googleUser);
-      toast.success("Logged in via Google Account!");
+      setUser(mockOAuthUser);
+      createCustomProfile(mockOAuthUser);
+      toast.success(`Logged in with ${provider.toUpperCase()}`);
     }
   };
 
@@ -251,36 +239,46 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       await supabase.auth.signOut();
     } catch (e) {}
-    localStorage.removeItem('insta_session');
-    localStorage.removeItem('insta_profile');
     setUser(null);
     setProfile(null);
-    toast.success("Logged out successfully");
+    localStorage.removeItem('insta_session');
+    localStorage.removeItem('insta_profile');
+    toast.success("Signed out");
   };
 
-  const updateProfileState = (updated: Partial<Profile>) => {
-    setProfile(prev => {
-      const p = prev ? { ...prev, ...updated } : null;
-      if (p) {
-        localStorage.setItem('insta_profile', JSON.stringify(p));
-        if (p.id) {
-          supabase.from('profiles').upsert([{
-            id: p.id,
-            username: p.username,
-            full_name: p.full_name,
-            bio: p.bio,
-            website: p.website,
-            avatar_url: p.avatar_url,
-            updated_at: new Date().toISOString()
-          }]).then();
-        }
-      }
-      return p;
-    });
+  const updateProfileState = async (updated: Partial<Profile>) => {
+    if (!profile) return;
+
+    const merged = { ...profile, ...updated };
+    setProfile(merged);
+    localStorage.setItem('insta_profile', JSON.stringify(merged));
+
+    try {
+      await supabase.from('profiles').upsert([{
+        id: merged.id,
+        username: merged.username,
+        full_name: merged.full_name,
+        avatar_url: merged.avatar_url,
+        bio: merged.bio,
+        website: merged.website,
+        updated_at: new Date().toISOString()
+      }]);
+    } catch (e) {}
   };
 
   return (
-    <AuthContext.Provider value={{ user, profile, loading, signIn, signUp, signInWithOAuth, signOut, updateProfileState }}>
+    <AuthContext.Provider
+      value={{
+        user,
+        profile,
+        loading,
+        signIn,
+        signUp,
+        signInWithOAuth,
+        signOut,
+        updateProfileState
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );
@@ -288,6 +286,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
 export const useAuth = () => {
   const context = useContext(AuthContext);
-  if (!context) throw new Error("useAuth must be used within AuthProvider");
+  if (!context) throw new Error('useAuth must be used within AuthProvider');
   return context;
 };

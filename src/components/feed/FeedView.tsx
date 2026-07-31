@@ -378,13 +378,13 @@ export const FeedView: React.FC<FeedViewProps> = ({ isCreateOpen, onCloseCreate,
     if (postItem.username === profile?.username || postItem.user_id === profile?.id) {
       if (profile?.avatar_url) return profile.avatar_url;
     }
-    if (userAvatarsMap[postItem.username]) {
+    if (postItem.username && userAvatarsMap[postItem.username]) {
       return userAvatarsMap[postItem.username];
     }
-    if (userAvatarsMap[postItem.user_id]) {
+    if (postItem.user_id && userAvatarsMap[postItem.user_id]) {
       return userAvatarsMap[postItem.user_id];
     }
-    return postItem.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${postItem.username}`;
+    return postItem.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${postItem.username || 'user'}`;
   };
 
   return (
@@ -441,7 +441,7 @@ export const FeedView: React.FC<FeedViewProps> = ({ isCreateOpen, onCloseCreate,
         ) : (
           posts.map((post) => {
             const isMyPost = post.username === profile?.username || post.user_id === profile?.id;
-            const isFollowingAuthor = !!followingMap[post.username] || !!followingMap[post.user_id];
+            const isFollowingAuthor = (post.username && !!followingMap[post.username]) || (post.user_id && !!followingMap[post.user_id]);
             const isSaved = savedPostIds[post.id] || post.isSaved;
 
             return (
@@ -452,21 +452,21 @@ export const FeedView: React.FC<FeedViewProps> = ({ isCreateOpen, onCloseCreate,
                     <img
                       src={getValidAvatarUrl(post)}
                       className="w-9 h-9 rounded-full object-cover cursor-pointer border border-white/20"
-                      alt={post.username}
-                      onClick={() => onOpenUserProfile && onOpenUserProfile(post.username)}
+                      alt={post.username || 'user'}
+                      onClick={() => onOpenUserProfile && post.username && onOpenUserProfile(post.username)}
                     />
                     <div className="flex flex-col">
                       <div className="flex items-center gap-2">
                         <span
-                          onClick={() => onOpenUserProfile && onOpenUserProfile(post.username)}
+                          onClick={() => onOpenUserProfile && post.username && onOpenUserProfile(post.username)}
                           className="text-sm font-semibold text-white cursor-pointer hover:underline"
                         >
                           {post.username}
                         </span>
                         {/* INSTAGRAM RULE: ONLY SHOW BLUE FOLLOW BUTTON IF YOU ARE NOT FOLLOWING AND IT'S NOT YOUR POST */}
-                        {!isMyPost && !isFollowingAuthor && (
+                        {!isMyPost && !isFollowingAuthor && post.username && (
                           <button
-                            onClick={() => toggleFollow(post.username)}
+                            onClick={() => post.username && toggleFollow(post.username)}
                             className="text-xs font-semibold text-instagram-blue hover:underline"
                           >
                             • Follow
@@ -509,7 +509,7 @@ export const FeedView: React.FC<FeedViewProps> = ({ isCreateOpen, onCloseCreate,
                   <span className="text-sm font-semibold text-white">{post.likes_count} likes</span>
                   <p className="text-sm text-neutral-200">
                     <span
-                      onClick={() => onOpenUserProfile && onOpenUserProfile(post.username)}
+                      onClick={() => onOpenUserProfile && post.username && onOpenUserProfile(post.username)}
                       className="font-semibold text-white mr-2 cursor-pointer hover:underline"
                     >
                       {post.username}
@@ -524,7 +524,7 @@ export const FeedView: React.FC<FeedViewProps> = ({ isCreateOpen, onCloseCreate,
                         <div key={c.id} className="flex justify-between items-center text-xs text-neutral-300">
                           <div>
                             <span
-                              onClick={() => onOpenUserProfile && onOpenUserProfile(c.username)}
+                              onClick={() => onOpenUserProfile && c.username && onOpenUserProfile(c.username)}
                               className="font-semibold mr-1.5 text-white cursor-pointer hover:underline"
                             >
                               {c.username}

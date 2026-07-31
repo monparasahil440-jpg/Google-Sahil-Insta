@@ -20,9 +20,20 @@ export const FeedView: React.FC<FeedViewProps> = ({ isCreateOpen, onCloseCreate,
   const [posts, setPosts] = useState<Post[]>([]);
   const [stories, setStories] = useState<StoryItemData[]>([]);
   const [suggestedUsers, setSuggestedUsers] = useState<any[]>([]);
-  const [userAvatarsMap, setUserAvatarsMap] = useState<{ [username: string]: string }>({});
+  const [userAvatarsMap, setUserAvatarsMap] = useState<{ [key: string]: string }>({});
+  const [userNamesMap, setUserNamesMap] = useState<{ [key: string]: string }>({});
   const [commentText, setCommentText] = useState<{ [key: string]: string }>({});
   const [doubleTapId, setDoubleTapId] = useState<string | null>(null);
+
+  // Liked post IDs map for persistent likes
+  const [likedPostIds, setLikedPostIds] = useState<{ [key: string]: boolean }>(() => {
+    try {
+      const saved = localStorage.getItem('insta_liked_post_ids');
+      return saved ? JSON.parse(saved) : {};
+    } catch (e) {
+      return {};
+    }
+  });
 
   // Saved post IDs map
   const [savedPostIds, setSavedPostIds] = useState<{ [key: string]: boolean }>(() => {
@@ -60,23 +71,28 @@ export const FeedView: React.FC<FeedViewProps> = ({ isCreateOpen, onCloseCreate,
 
   // Load posts, profiles, followings, and user avatars on mount
   useEffect(() => {
+    fetchUserProfilesMapFromSupabase();
     fetchRealPosts();
     fetchRealProfiles();
     fetchSavedPostsFromSupabase();
     fetchFollowingFromSupabase();
-    fetchUserAvatarsFromSupabase();
   }, [profile?.username, profile?.id]);
 
-  const fetchUserAvatarsFromSupabase = async () => {
+  const fetchUserProfilesMapFromSupabase = async () => {
     try {
       const { data, error } = await supabase.from('profiles').select('*');
       if (!error && data) {
-        const map: { [key: string]: string } = {};
+        const avatars: { [key: string]: string } = {};
+        const usernames: { [key: string]: string } = {};
+
         data.forEach((p: any) => {
-          if (p.username && p.avatar_url) map[p.username] = p.avatar_url;
-          if (p.id && p.avatar_url) map[p.id] = p.avatar_url;
+          if (p.username && p.avatar_url) avatars[p.username] = p.avatar_url;
+          if (p.id && p.avatar_url) avatars[p.id] = p.avatar_url;
+          if (p.id && p.username) usernames[p.id] = p.username;
         });
-        setUserAvatarsMap(map);
+
+        setUserAvatarsMap(avatars);
+        setUserNamesMap(usernames);
       }
     } catch (e) {}
   };
@@ -93,6 +109,7 @@ export const FeedView: React.FC<FeedViewProps> = ({ isCreateOpen, onCloseCreate,
         data.forEach((r: any) => {
           if (r.follower_id === profile?.id || r.follower_id === profile?.username) {
             map[r.target_username] = true;
+            if (r.target_id) map[r.target_id] = true;
           }
         });
         setFollowingMap(prev => {
@@ -113,7 +130,18 @@ export const FeedView: React.FC<FeedViewProps> = ({ isCreateOpen, onCloseCreate,
     try {
       const { data, error } = await supabase.from('posts').select('*').order('created_at', { ascending: false });
       if (!error && data && data.length > 0) {
-        const merged = [...localUserPosts, ...(data as Post[])];
+        const mappedDb = (data as any[]).map(p => {
+          const isLiked = !!likedPostIds[p.id] || p.isLiked;
+          return {
+            ...p,
+            username: p.username || userNamesMap[p.user_id] || (p.user_id === profile?.id ? profile?.username : null) || 'instagram_user',
+            avatar_url: p.avatar_url || userAvatarsMap[p.user_id] || (p.user_id === profile?.id ? profile?.avatar_url : null),
+            isLiked,
+            likes_count: (p.likes_count || 0) + (isLiked ? 1 : 0)
+          };
+        });
+
+        const merged = [...localUserPosts, ...mappedDb];
         const uniquePosts = Array.from(new Map(merged.map(p => [p.id, p])).values());
         setPosts(uniquePosts);
       } else {
@@ -145,7 +173,7 @@ export const FeedView: React.FC<FeedViewProps> = ({ isCreateOpen, onCloseCreate,
       if (!error && data && data.length > 0) {
         const filtered = data.filter((u: any) => {
           const isSelf = u.username === profile?.username || u.id === profile?.id;
-          const isAlreadyFollowing = !!followingMap[u.username];
+          const isAlreadyFollowing = !!followingMap[u.username] || !!followingMap[u.id];
           return !isSelf && !isAlreadyFollowing;
         });
         setSuggestedUsers(filtered);
@@ -158,21 +186,31 @@ export const FeedView: React.FC<FeedViewProps> = ({ isCreateOpen, onCloseCreate,
   };
 
   const toggleLike = async (postId: string) => {
+    let newIsLiked = false;
+
     setPosts(prev => prev.map(p => {
       if (p.id === postId) {
-        const isLiked = !p.isLiked;
+        newIsLiked = !p.isLiked;
         return {
           ...p,
-          isLiked,
-          likes_count: p.likes_count + (isLiked ? 1 : -1)
+          isLiked: newIsLiked,
+          likes_count: p.likes_count + (newIsLiked ? 1 : -1)
         };
       }
       return p;
     }));
 
+    const newLikedMap = { ...likedPostIds, [postId]: newIsLiked };
+    setLikedPostIds(newLikedMap);
+    localStorage.setItem('insta_liked_post_ids', JSON.stringify(newLikedMap));
+
     try {
       if (profile?.id) {
-        await supabase.from('likes').insert([{ user_id: profile.id, post_id: postId }]);
+        if (newIsLiked) {
+          await supabase.from('likes').insert([{ user_id: profile.id, post_id: postId }]);
+        } else {
+          await supabase.from('likes').delete().eq('user_id', profile.id).eq('post_id', postId);
+        }
       }
     } catch (e) {}
   };
@@ -266,7 +304,7 @@ export const FeedView: React.FC<FeedViewProps> = ({ isCreateOpen, onCloseCreate,
     setFollowingMap(updatedMap);
     localStorage.setItem('insta_following_map', JSON.stringify(updatedMap));
 
-    setSuggestedUsers(prev => prev.filter(u => u.username !== targetUsername));
+    setSuggestedUsers(prev => prev.filter(u => u.username !== targetUsername && u.id !== targetUsername));
 
     toast(newFollowingStatus ? `Following @${targetUsername}` : `Unfollowed @${targetUsername}`);
 
@@ -374,6 +412,19 @@ export const FeedView: React.FC<FeedViewProps> = ({ isCreateOpen, onCloseCreate,
     onCloseCreate();
   };
 
+  const getPostUsername = (postItem: Post) => {
+    if (postItem.username && postItem.username !== 'undefined' && postItem.username !== 'null') {
+      return postItem.username;
+    }
+    if (postItem.user_id && userNamesMap[postItem.user_id]) {
+      return userNamesMap[postItem.user_id];
+    }
+    if (postItem.user_id === profile?.id && profile?.username) {
+      return profile.username;
+    }
+    return 'instagram_creator';
+  };
+
   const getValidAvatarUrl = (postItem: Post) => {
     if (postItem.username === profile?.username || postItem.user_id === profile?.id) {
       if (profile?.avatar_url) return profile.avatar_url;
@@ -384,7 +435,7 @@ export const FeedView: React.FC<FeedViewProps> = ({ isCreateOpen, onCloseCreate,
     if (postItem.user_id && userAvatarsMap[postItem.user_id]) {
       return userAvatarsMap[postItem.user_id];
     }
-    return postItem.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${postItem.username || 'user'}`;
+    return postItem.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${getPostUsername(postItem)}`;
   };
 
   return (
@@ -440,8 +491,9 @@ export const FeedView: React.FC<FeedViewProps> = ({ isCreateOpen, onCloseCreate,
           </div>
         ) : (
           posts.map((post) => {
-            const isMyPost = post.username === profile?.username || post.user_id === profile?.id;
-            const isFollowingAuthor = (post.username && !!followingMap[post.username]) || (post.user_id && !!followingMap[post.user_id]);
+            const authorUname = getPostUsername(post);
+            const isMyPost = authorUname === profile?.username || post.user_id === profile?.id;
+            const isFollowingAuthor = !!followingMap[authorUname] || !!followingMap[post.user_id];
             const isSaved = savedPostIds[post.id] || post.isSaved;
 
             return (
@@ -452,21 +504,21 @@ export const FeedView: React.FC<FeedViewProps> = ({ isCreateOpen, onCloseCreate,
                     <img
                       src={getValidAvatarUrl(post)}
                       className="w-9 h-9 rounded-full object-cover cursor-pointer border border-white/20"
-                      alt={post.username || 'user'}
-                      onClick={() => onOpenUserProfile && post.username && onOpenUserProfile(post.username)}
+                      alt={authorUname}
+                      onClick={() => onOpenUserProfile && onOpenUserProfile(authorUname)}
                     />
                     <div className="flex flex-col">
                       <div className="flex items-center gap-2">
                         <span
-                          onClick={() => onOpenUserProfile && post.username && onOpenUserProfile(post.username)}
+                          onClick={() => onOpenUserProfile && onOpenUserProfile(authorUname)}
                           className="text-sm font-semibold text-white cursor-pointer hover:underline"
                         >
-                          {post.username}
+                          {authorUname}
                         </span>
                         {/* INSTAGRAM RULE: ONLY SHOW BLUE FOLLOW BUTTON IF YOU ARE NOT FOLLOWING AND IT'S NOT YOUR POST */}
-                        {!isMyPost && !isFollowingAuthor && post.username && (
+                        {!isMyPost && !isFollowingAuthor && (
                           <button
-                            onClick={() => post.username && toggleFollow(post.username)}
+                            onClick={() => toggleFollow(authorUname)}
                             className="text-xs font-semibold text-instagram-blue hover:underline"
                           >
                             • Follow
@@ -509,10 +561,10 @@ export const FeedView: React.FC<FeedViewProps> = ({ isCreateOpen, onCloseCreate,
                   <span className="text-sm font-semibold text-white">{post.likes_count} likes</span>
                   <p className="text-sm text-neutral-200">
                     <span
-                      onClick={() => onOpenUserProfile && post.username && onOpenUserProfile(post.username)}
+                      onClick={() => onOpenUserProfile && onOpenUserProfile(authorUname)}
                       className="font-semibold text-white mr-2 cursor-pointer hover:underline"
                     >
-                      {post.username}
+                      {authorUname}
                     </span>
                     {post.caption}
                   </p>

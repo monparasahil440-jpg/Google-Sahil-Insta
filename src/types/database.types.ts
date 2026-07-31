@@ -13,6 +13,8 @@ export interface Profile {
   is_private?: boolean;
   is_verified?: boolean;
   is_admin?: boolean;
+  followers?: number;
+  following?: number;
   created_at: string;
 }
 

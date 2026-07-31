@@ -118,7 +118,7 @@ body {
 .nav-item svg {
   width: 24px;
   height: 24px;
-  fill: currentColor;
+  flex-shrink: 0;
 }
 
 .user-avatar-small {

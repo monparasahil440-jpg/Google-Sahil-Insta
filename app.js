@@ -320,12 +320,106 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function renderProfileGrid() {
     const grid = document.getElementById('profile-posts-grid');
+    const postsCountEl = document.getElementById('profile-posts-count');
     if (!grid) return;
+    if (postsCountEl) postsCountEl.textContent = posts.length;
+
     grid.innerHTML = posts.map(p => `
-      <div style="aspect-ratio: 1; border-radius: 8px; overflow: hidden; position: relative;">
-        <img class="${p.filter_effect || ''}" src="${p.image_url}" style="width: 100%; height: 100%; object-fit: cover; cursor: pointer;">
+      <div class="profile-grid-item">
+        <img class="${p.filter_effect || ''}" src="${p.image_url}" alt="Profile Post">
+        <div class="grid-overlay">
+          <div class="overlay-stat">
+            <svg width="20" height="20" fill="#fff" viewBox="0 0 24 24"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>
+            <span>${p.likes_count || 0}</span>
+          </div>
+          <div class="overlay-stat">
+            <svg width="20" height="20" fill="#fff" viewBox="0 0 24 24"><path d="M20.656 17.008a9.993 9.993 0 1 0-3.59 3.615l4.033 1.036z"/></svg>
+            <span>${(p.comments || []).length}</span>
+          </div>
+        </div>
       </div>
     `).join('');
+  }
+
+  // PROFILE TABS SWITCHING
+  const profileTabs = document.querySelectorAll('.profile-tab-btn');
+  profileTabs.forEach(tab => {
+    tab.addEventListener('click', () => {
+      profileTabs.forEach(t => t.classList.remove('active'));
+      tab.classList.add('active');
+    });
+  });
+
+  // SETTINGS & LOGOUT MODAL HANDLERS
+  const openSettingsBtn = document.getElementById('open-settings-btn');
+  const settingsModal = document.getElementById('settings-modal');
+  const closeSettingsBtn = document.getElementById('close-settings-btn');
+  const logoutBtn = document.getElementById('logout-btn');
+
+  if (openSettingsBtn) openSettingsBtn.addEventListener('click', () => settingsModal.classList.add('active'));
+  if (closeSettingsBtn) closeSettingsBtn.addEventListener('click', () => settingsModal.classList.remove('active'));
+
+  if (logoutBtn) {
+    logoutBtn.addEventListener('click', () => {
+      if (confirm('Are you sure you want to log out of Instagram?')) {
+        // Clear session or cached user state
+        localStorage.removeItem('insta_session');
+        alert('You have logged out successfully.');
+        window.location.reload();
+      }
+    });
+  }
+
+  // EDIT PROFILE MODAL HANDLERS
+  const openEditProfileBtn = document.getElementById('open-edit-profile-btn');
+  const editProfileModal = document.getElementById('edit-profile-modal');
+  const closeEditProfileBtn = document.getElementById('close-edit-profile-btn');
+  const saveProfileBtn = document.getElementById('save-profile-btn');
+
+  const avatarFileInput = document.getElementById('avatar-file-input');
+  const editAvatarPreview = document.getElementById('edit-avatar-preview');
+  const profileAvatarImg = document.getElementById('profile-avatar-img');
+
+  const editFullnameInput = document.getElementById('edit-fullname-input');
+  const editUsernameInput = document.getElementById('edit-username-input');
+  const editWebsiteInput = document.getElementById('edit-website-input');
+  const editBioInput = document.getElementById('edit-bio-input');
+
+  const profileFullname = document.getElementById('profile-fullname');
+  const profileUsernameHeading = document.getElementById('profile-username-heading');
+  const profileBioText = document.getElementById('profile-bio-text');
+  const profileWebsiteLink = document.getElementById('profile-website-link');
+
+  if (openEditProfileBtn) openEditProfileBtn.addEventListener('click', () => editProfileModal.classList.add('active'));
+  if (closeEditProfileBtn) closeEditProfileBtn.addEventListener('click', () => editProfileModal.classList.remove('active'));
+
+  let newAvatarUrl = null;
+  if (avatarFileInput) {
+    avatarFileInput.addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (file) {
+        const reader = new FileReader();
+        reader.onload = (evt) => {
+          newAvatarUrl = evt.target.result;
+          editAvatarPreview.src = newAvatarUrl;
+        };
+        reader.readAsDataURL(file);
+      }
+    });
+  }
+
+  if (saveProfileBtn) {
+    saveProfileBtn.addEventListener('click', () => {
+      if (newAvatarUrl && profileAvatarImg) profileAvatarImg.src = newAvatarUrl;
+      if (editUsernameInput.value && profileUsernameHeading) profileUsernameHeading.textContent = editUsernameInput.value;
+      if (editFullnameInput.value && profileFullname) profileFullname.textContent = editFullnameInput.value;
+      if (editBioInput.value && profileBioText) profileBioText.textContent = editBioInput.value;
+      if (editWebsiteInput.value && profileWebsiteLink) {
+        profileWebsiteLink.textContent = '🔗 ' + editWebsiteInput.value.replace(/^https?:\/\//, '');
+        profileWebsiteLink.href = editWebsiteInput.value;
+      }
+      editProfileModal.classList.remove('active');
+    });
   }
 
   openCreateBtns.forEach(btn => {

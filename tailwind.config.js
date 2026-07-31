@@ -18,10 +18,10 @@ export default {
           like: '#ff3040'
         },
         dark: {
-          primary: '#000000',
-          secondary: '#121212',
-          card: '#262626',
-          border: '#262626'
+          primary: 'var(--bg-primary)',
+          secondary: 'var(--bg-secondary)',
+          card: 'var(--bg-card)',
+          border: 'var(--border-color)'
         }
       },
       fontFamily: {

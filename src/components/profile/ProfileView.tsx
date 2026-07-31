@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
-import { Settings, Edit3, Grid, Bookmark, Tag, Heart, MessageCircle, LogOut, CheckCircle2, Lock, Users, UserPlus, UserCheck } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Settings, Edit3, Grid, Bookmark, Tag, Heart, MessageCircle, LogOut, CheckCircle2, Camera } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
+import { supabase } from '../../lib/supabase';
 import toast from 'react-hot-toast';
 
 interface ProfileViewProps {
@@ -8,76 +9,56 @@ interface ProfileViewProps {
   onBackToSelf?: () => void;
 }
 
-const mockUsersData: { [key: string]: any } = {
-  alex_tech: {
-    username: 'alex_tech',
-    full_name: 'Alex Johnson',
-    avatar_url: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=150&q=80',
-    cover_url: 'https://images.unsplash.com/photo-1519681393784-d120267933ba?auto=format&fit=crop&w=1000&q=80',
-    bio: 'Tech enthusiast & Senior Frontend Engineer 💻⚡ Building open-source web apps.',
-    website: 'https://github.com/alex_tech',
-    is_verified: true,
-    followers: '12.4k',
-    following: '430',
-    posts: [
-      { url: 'https://images.unsplash.com/photo-1517841905240-472988babdf9?auto=format&fit=crop&w=400&q=80', likes: 240, comments: 18 },
-      { url: 'https://images.unsplash.com/photo-1498050108023-c5249f4df085?auto=format&fit=crop&w=400&q=80', likes: 512, comments: 42 }
-    ]
-  },
-  creative_coder: {
-    username: 'creative_coder',
-    full_name: 'Creative Coder Studio',
-    avatar_url: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=150&q=80',
-    cover_url: 'https://images.unsplash.com/photo-1470071459604-3b5ec3a7fe05?auto=format&fit=crop&w=1000&q=80',
-    bio: 'Digital art & WebGL UI designs 🎨✨',
-    website: 'https://creativecoder.design',
-    is_verified: false,
-    followers: '8.9k',
-    following: '210',
-    posts: [
-      { url: 'https://images.unsplash.com/photo-1526772662000-3f88f10405ff?auto=format&fit=crop&w=400&q=80', likes: 310, comments: 27 },
-      { url: 'https://images.unsplash.com/photo-1447752875215-b2761acb3c5d?auto=format&fit=crop&w=400&q=80', likes: 640, comments: 53 }
-    ]
-  },
-  web3_pioneer: {
-    username: 'web3_pioneer',
-    full_name: 'Web3 Pioneer',
-    avatar_url: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=150&q=80',
-    cover_url: 'https://images.unsplash.com/photo-1506744038136-46273834b3fb?auto=format&fit=crop&w=1000&q=80',
-    bio: 'Exploring decentralization, smart contracts & AI 🚀',
-    website: 'https://web3pioneer.io',
-    is_verified: false,
-    followers: '5.1k',
-    following: '180',
-    posts: [
-      { url: 'https://images.unsplash.com/photo-1519681393784-d120267933ba?auto=format&fit=crop&w=400&q=80', likes: 890, comments: 64 }
-    ]
-  },
-  design_weekly: {
-    username: 'design_weekly',
-    full_name: 'Design Weekly',
-    avatar_url: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=150&q=80',
-    cover_url: 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?auto=format&fit=crop&w=1000&q=80',
-    bio: 'Curated UI/UX designs & design trends 💡',
-    website: '',
-    is_verified: true,
-    followers: '45.2k',
-    following: '95',
-    posts: [
-      { url: 'https://images.unsplash.com/photo-1506744038136-46273834b3fb?auto=format&fit=crop&w=400&q=80', likes: 128, comments: 9 }
-    ]
-  }
-};
-
 export const ProfileView: React.FC<ProfileViewProps> = ({ targetUsername }) => {
   const { profile: myProfile, updateProfileState, signOut } = useAuth();
   const [activeTab, setActiveTab] = useState<'posts' | 'saved' | 'tagged'>('posts');
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isEditOpen, setIsEditOpen] = useState(false);
-  const [isFollowing, setIsFollowing] = useState(false);
+  const [targetProfileData, setTargetProfileData] = useState<any>(null);
+  
+  // FOLLOW STATES AND LIVE COUNTS
+  const [isFollowing, setIsFollowing] = useState<boolean>(() => {
+    if (!targetUsername) return false;
+    try {
+      const saved = localStorage.getItem('insta_following_map');
+      const map = saved ? JSON.parse(saved) : {};
+      return !!map[targetUsername];
+    } catch (e) {
+      return false;
+    }
+  });
+
+  const [followerCount, setFollowerCount] = useState<number>(0);
+  const [followingCount, setFollowingCount] = useState<number>(0);
+  const [userPosts, setUserPosts] = useState<any[]>([]);
+  const [savedPosts, setSavedPosts] = useState<any[]>([]);
 
   const isOwnProfile = !targetUsername || targetUsername === myProfile?.username;
-  const targetData = !isOwnProfile ? (mockUsersData[targetUsername] || {
+
+  // FETCH REAL TARGET USER PROFILE FROM SUPABASE
+  useEffect(() => {
+    if (!isOwnProfile && targetUsername) {
+      fetchTargetProfile(targetUsername);
+    } else {
+      setTargetProfileData(null);
+    }
+  }, [targetUsername, isOwnProfile]);
+
+  const fetchTargetProfile = async (uname: string) => {
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('username', uname)
+        .single();
+
+      if (!error && data) {
+        setTargetProfileData(data);
+      }
+    } catch (e) {}
+  };
+
+  const displayedProfile = isOwnProfile ? myProfile : (targetProfileData || {
     username: targetUsername,
     full_name: targetUsername,
     avatar_url: `https://api.dicebear.com/7.x/avataaars/svg?seed=${targetUsername}`,
@@ -85,14 +66,9 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ targetUsername }) => {
     bio: `Instagram Creator @${targetUsername}`,
     website: '',
     is_verified: false,
-    followers: '1.2k',
-    following: '340',
-    posts: [
-      { url: 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?auto=format&fit=crop&w=400&q=80', likes: 120, comments: 4 }
-    ]
-  }) : null;
-
-  const displayedProfile = isOwnProfile ? myProfile : targetData;
+    followers: followerCount,
+    following: followingCount,
+  });
 
   // Edit Profile form state
   const [editFullName, setEditFullName] = useState(myProfile?.full_name || '');
@@ -101,11 +77,119 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ targetUsername }) => {
   const [editWebsite, setEditWebsite] = useState(myProfile?.website || '');
   const [editAvatar, setEditAvatar] = useState(myProfile?.avatar_url || '');
 
-  const userPosts = isOwnProfile ? [
-    { url: 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?auto=format&fit=crop&w=400&q=80', likes: 142, comments: 2 },
-    { url: 'https://images.unsplash.com/photo-1498050108023-c5249f4df085?auto=format&fit=crop&w=400&q=80', likes: 89, comments: 1 },
-    { url: 'https://images.unsplash.com/photo-1469474968028-56623f02e42e?auto=format&fit=crop&w=400&q=80', likes: 310, comments: 5 }
-  ] : (targetData?.posts || []);
+  useEffect(() => {
+    fetchUserPosts();
+    fetchSavedPosts();
+    fetchLiveFollowCounts();
+  }, [myProfile?.username, targetUsername]);
+
+  const fetchLiveFollowCounts = async () => {
+    const currentUsername = isOwnProfile ? myProfile?.username : targetUsername;
+    const currentUserId = isOwnProfile ? myProfile?.id : targetProfileData?.id;
+
+    if (!currentUsername) return;
+
+    try {
+      const { data: followersData } = await supabase
+        .from('followers')
+        .select('*')
+        .eq('target_username', currentUsername);
+
+      if (followersData) {
+        setFollowerCount(followersData.length);
+        if (!isOwnProfile && myProfile?.id) {
+          const iAmFollowing = followersData.some((r: any) => r.follower_id === myProfile.id || r.follower_id === myProfile.username);
+          setIsFollowing(iAmFollowing);
+        }
+      }
+
+      if (currentUserId) {
+        const { data: followingData } = await supabase
+          .from('followers')
+          .select('*')
+          .eq('follower_id', currentUserId);
+
+        if (followingData) {
+          setFollowingCount(followingData.length);
+        }
+      }
+    } catch (e) {}
+  };
+
+  const fetchUserPosts = async () => {
+    let localPosts: any[] = [];
+    try {
+      const saved = localStorage.getItem('insta_user_posts');
+      if (saved) {
+        localPosts = JSON.parse(saved);
+      }
+    } catch (e) {}
+
+    const filterUsername = isOwnProfile ? myProfile?.username : targetUsername;
+    const filteredLocal = localPosts.filter(p => p.username === filterUsername || (isOwnProfile && p.user_id === myProfile?.id));
+
+    try {
+      const { data, error } = await supabase
+        .from('posts')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (!error && data && data.length > 0) {
+        const dbUserPosts = data.filter((p: any) => p.user_id === myProfile?.id || p.username === filterUsername);
+        const merged = [...filteredLocal, ...dbUserPosts];
+        const unique = Array.from(new Map(merged.map(item => [item.id || item.image_url, item])).values());
+        setUserPosts(unique);
+      } else {
+        setUserPosts(filteredLocal);
+      }
+    } catch (e) {
+      setUserPosts(filteredLocal);
+    }
+  };
+
+  const fetchSavedPosts = async () => {
+    let localSaved: any[] = [];
+    try {
+      const savedMapRaw = localStorage.getItem('insta_saved_post_ids');
+      const allUserPostsRaw = localStorage.getItem('insta_user_posts');
+      if (savedMapRaw && allUserPostsRaw) {
+        const savedMap = JSON.parse(savedMapRaw);
+        const allPosts = JSON.parse(allUserPostsRaw);
+        localSaved = allPosts.filter((p: any) => savedMap[p.id]);
+      }
+    } catch (e) {}
+
+    try {
+      if (myProfile?.id) {
+        const { data, error } = await supabase
+          .from('saved_posts')
+          .select('post_id')
+          .eq('user_id', myProfile.id);
+
+        if (!error && data && data.length > 0) {
+          const savedIds = data.map((r: any) => r.post_id);
+          const { data: dbPosts } = await supabase.from('posts').select('*').in('id', savedIds);
+          const mergedSaved = [...localSaved, ...(dbPosts || [])];
+          const uniqueSaved = Array.from(new Map(mergedSaved.map(p => [p.id, p])).values());
+          setSavedPosts(uniqueSaved);
+          return;
+        }
+      }
+      setSavedPosts(localSaved);
+    } catch (e) {
+      setSavedPosts(localSaved);
+    }
+  };
+
+  useEffect(() => {
+    if (myProfile) {
+      setEditFullName(myProfile.full_name || '');
+      setEditUsername(myProfile.username || '');
+      setEditBio(myProfile.bio || '');
+      setEditWebsite(myProfile.website || '');
+      setEditAvatar(myProfile.avatar_url || '');
+    }
+  }, [myProfile, isEditOpen]);
 
   const handleAvatarFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -137,9 +221,31 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ targetUsername }) => {
     }
   };
 
-  const toggleFollowTarget = () => {
-    setIsFollowing(!isFollowing);
-    toast(isFollowing ? `Unfollowed @${displayedProfile?.username}` : `Following @${displayedProfile?.username}`);
+  const toggleFollowTarget = async () => {
+    if (!targetUsername) return;
+
+    const nextState = !isFollowing;
+    setIsFollowing(nextState);
+    setFollowerCount(prev => prev + (nextState ? 1 : -1));
+
+    const savedMap = JSON.parse(localStorage.getItem('insta_following_map') || '{}');
+    savedMap[targetUsername] = nextState;
+    localStorage.setItem('insta_following_map', JSON.stringify(savedMap));
+
+    toast(nextState ? `Following @${targetUsername}` : `Unfollowed @${targetUsername}`);
+
+    try {
+      if (myProfile?.id) {
+        if (nextState) {
+          await supabase.from('followers').insert([{
+            follower_id: myProfile.id,
+            target_username: targetUsername
+          }]);
+        } else {
+          await supabase.from('followers').delete().eq('follower_id', myProfile.id).eq('target_username', targetUsername);
+        }
+      }
+    } catch (e) {}
   };
 
   return (
@@ -149,8 +255,12 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ targetUsername }) => {
         <img src={displayedProfile?.cover_url || 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?auto=format&fit=crop&w=1000&q=80'} className="w-full h-44 object-cover opacity-60" alt="Cover" />
         
         <div className="p-6 pt-0 flex flex-col md:flex-row gap-6 items-start md:items-end -mt-16 relative z-10">
-          <div className="w-32 h-32 rounded-full p-1 instagram-story-ring flex items-center justify-center shrink-0">
-            <img src={displayedProfile?.avatar_url} className="w-full h-full rounded-full object-cover border-4 border-black" alt="Avatar" />
+          <div className="w-32 h-32 rounded-full p-1 instagram-story-ring flex items-center justify-center shrink-0 bg-dark-secondary">
+            <img
+              src={displayedProfile?.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${displayedProfile?.username || 'me'}`}
+              className="w-full h-full rounded-full object-cover border-4 border-black"
+              alt="Avatar"
+            />
           </div>
 
           <div className="flex-1 flex flex-col gap-3">
@@ -180,54 +290,32 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ targetUsername }) => {
                 ) : (
                   <button
                     onClick={toggleFollowTarget}
-                    className={`font-semibold text-xs px-6 py-2 rounded-xl transition flex items-center gap-2 shadow-md ${isFollowing ? 'bg-dark-card border border-dark-border text-white' : 'bg-instagram-blue hover:bg-blue-600 text-white'}`}
+                    className={`font-semibold text-xs px-6 py-2 rounded-xl transition shadow-md ${isFollowing ? 'bg-dark-card border border-dark-border text-white' : 'bg-instagram-blue hover:bg-blue-600 text-white'}`}
                   >
-                    {isFollowing ? <UserCheck className="w-4 h-4" /> : <UserPlus className="w-4 h-4" />}
                     {isFollowing ? 'Following' : 'Follow'}
                   </button>
                 )}
               </div>
             </div>
 
+            {/* REAL USER STATS */}
             <div className="flex gap-6 text-sm">
               <span><strong className="text-white">{userPosts.length}</strong> posts</span>
-              <span><strong className="text-white">{displayedProfile?.followers || '1.4k'}</strong> followers</span>
-              <span><strong className="text-white">{displayedProfile?.following || '520'}</strong> following</span>
+              <span><strong className="text-white">{followerCount}</strong> followers</span>
+              <span><strong className="text-white">{followingCount}</strong> following</span>
             </div>
 
             <div>
               <h2 className="font-semibold text-white text-sm">{displayedProfile?.full_name}</h2>
-              <p className="text-xs text-neutral-300 mt-0.5">{displayedProfile?.bio}</p>
+              <p className="text-xs text-neutral-300 mt-0.5">{displayedProfile?.bio || 'No bio added yet.'}</p>
               {displayedProfile?.website && (
                 <a href={displayedProfile.website} target="_blank" rel="noreferrer" className="text-xs font-semibold text-sky-400 hover:underline mt-1 inline-block">
                   🔗 {displayedProfile.website.replace(/^https?:\/\//, '')}
                 </a>
               )}
             </div>
-
-            {/* MUTUAL FRIENDS INFO */}
-            <div className="flex items-center gap-2 text-xs text-neutral-400 mt-1">
-              <Users className="w-4 h-4 text-instagram-blue" />
-              <span>Followed by <strong>alex_tech</strong>, <strong>sarah_m</strong> + 14 mutual friends</span>
-            </div>
           </div>
         </div>
-      </div>
-
-      {/* HIGHLIGHTS TRAY */}
-      <div className="flex gap-6 overflow-x-auto no-scrollbar pb-2 border-b border-dark-border">
-        {[
-          { label: 'Travel ✈️', img: 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?auto=format&fit=crop&w=150&q=80' },
-          { label: 'Coding 💻', img: 'https://images.unsplash.com/photo-1498050108023-c5249f4df085?auto=format&fit=crop&w=150&q=80' },
-          { label: 'Vibes ✨', img: 'https://images.unsplash.com/photo-1517841905240-472988babdf9?auto=format&fit=crop&w=150&q=80' }
-        ].map((h, i) => (
-          <div key={i} className="flex flex-col items-center gap-1.5 cursor-pointer group">
-            <div className="w-16 h-16 rounded-full p-0.5 border border-dark-border group-hover:border-white transition flex items-center justify-center">
-              <img src={h.img} className="w-full h-full rounded-full object-cover" alt={h.label} />
-            </div>
-            <span className="text-xs text-neutral-300 font-medium">{h.label}</span>
-          </div>
-        ))}
       </div>
 
       {/* TABS HEADER */}
@@ -239,7 +327,10 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ targetUsername }) => {
           <Grid className="w-4 h-4" /> POSTS
         </button>
         <button
-          onClick={() => setActiveTab('saved')}
+          onClick={() => {
+            fetchSavedPosts();
+            setActiveTab('saved');
+          }}
           className={`flex items-center gap-2 py-3 border-t-2 text-xs font-semibold tracking-wider transition ${activeTab === 'saved' ? 'border-white text-white' : 'border-transparent text-neutral-400'}`}
         >
           <Bookmark className="w-4 h-4" /> SAVED
@@ -252,24 +343,72 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ targetUsername }) => {
         </button>
       </div>
 
-      {/* POSTS GRID WITH HOVER STATS */}
-      <div className="grid grid-cols-3 gap-3">
-        {userPosts.map((p, idx) => (
-          <div key={idx} className="relative aspect-square rounded-xl overflow-hidden group cursor-pointer bg-dark-card">
-            <img src={p.url} className="w-full h-full object-cover transition transform group-hover:scale-105" alt="User Post" />
-            <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition flex items-center justify-center gap-6 text-white font-bold">
-              <div className="flex items-center gap-1.5">
-                <Heart className="w-5 h-5 fill-white" />
-                <span>{p.likes}</span>
-              </div>
-              <div className="flex items-center gap-1.5">
-                <MessageCircle className="w-5 h-5 fill-white" />
-                <span>{p.comments}</span>
-              </div>
+      {/* TAB CONTENT GRID */}
+      {activeTab === 'posts' && (
+        userPosts.length === 0 ? (
+          <div className="py-16 text-center flex flex-col items-center gap-3 text-neutral-400">
+            <div className="w-16 h-16 rounded-full border-2 border-white/20 flex items-center justify-center">
+              <Camera className="w-8 h-8 text-white stroke-1" />
             </div>
+            <h3 className="text-xl font-bold text-white mt-1">No Posts Yet</h3>
+            <p className="text-xs max-w-xs">When you share photos and videos, they will appear on your profile.</p>
           </div>
-        ))}
-      </div>
+        ) : (
+          <div className="grid grid-cols-3 gap-3">
+            {userPosts.map((p, idx) => (
+              <div key={idx} className="relative aspect-square rounded-xl overflow-hidden group cursor-pointer bg-dark-card">
+                <img src={p.image_url || p.url} className="w-full h-full object-cover transition transform group-hover:scale-105" alt="User Post" />
+                <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition flex items-center justify-center gap-6 text-white font-bold">
+                  <div className="flex items-center gap-1.5">
+                    <Heart className="w-5 h-5 fill-white" />
+                    <span>{p.likes_count || p.likes || 0}</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <MessageCircle className="w-5 h-5 fill-white" />
+                    <span>{p.comments_count || p.comments || 0}</span>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )
+      )}
+
+      {activeTab === 'saved' && (
+        savedPosts.length === 0 ? (
+          <div className="py-16 text-center flex flex-col items-center gap-3 text-neutral-400">
+            <div className="w-16 h-16 rounded-full border-2 border-white/20 flex items-center justify-center">
+              <Bookmark className="w-8 h-8 text-white stroke-1" />
+            </div>
+            <h3 className="text-xl font-bold text-white mt-1">Save Photos and Videos</h3>
+            <p className="text-xs max-w-xs">Save photos and videos that you want to see again. Only you can see what you've saved.</p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-3 gap-3">
+            {savedPosts.map((p, idx) => (
+              <div key={idx} className="relative aspect-square rounded-xl overflow-hidden group cursor-pointer bg-dark-card">
+                <img src={p.image_url || p.url} className="w-full h-full object-cover transition transform group-hover:scale-105" alt="Saved Post" />
+                <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition flex items-center justify-center gap-6 text-white font-bold">
+                  <div className="flex items-center gap-1.5">
+                    <Heart className="w-5 h-5 fill-white" />
+                    <span>{p.likes_count || 0}</span>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )
+      )}
+
+      {activeTab === 'tagged' && (
+        <div className="py-16 text-center flex flex-col items-center gap-3 text-neutral-400">
+          <div className="w-16 h-16 rounded-full border-2 border-white/20 flex items-center justify-center">
+            <Tag className="w-8 h-8 text-white stroke-1" />
+          </div>
+          <h3 className="text-xl font-bold text-white mt-1">Photos of you</h3>
+          <p className="text-xs max-w-xs">When people tag you in photos, they'll appear here.</p>
+        </div>
+      )}
 
       {/* SETTINGS & LOGOUT DIALOG MODAL */}
       {isSettingsOpen && (

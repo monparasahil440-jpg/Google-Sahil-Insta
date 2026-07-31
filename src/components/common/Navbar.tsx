@@ -1,21 +1,25 @@
 import React from 'react';
-import { Home, Search, Film, MessageCircle, PlusSquare, User, Moon, Sun, ShieldAlert } from 'lucide-react';
+import { Home, Search, Film, MessageCircle, PlusSquare, User, Moon, Sun, ShieldAlert, Heart } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
 
 interface NavbarProps {
   currentView: string;
+  unreadCount?: number;
   onNavigate: (view: string) => void;
   onOpenCreate: () => void;
   onOpenChat: () => void;
+  onOpenNotifications: () => void;
   onOpenAdmin: () => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
   currentView,
+  unreadCount = 0,
   onNavigate,
   onOpenCreate,
   onOpenChat,
+  onOpenNotifications,
   onOpenAdmin
 }) => {
   const { profile } = useAuth();
@@ -54,10 +58,25 @@ export const Navbar: React.FC<NavbarProps> = ({
 
             <button
               onClick={onOpenChat}
-              className="flex items-center gap-4 p-3 rounded-xl transition hover:bg-white/10 text-neutral-300"
+              className="flex items-center gap-4 p-3 rounded-xl transition hover:bg-white/10 text-neutral-300 relative"
             >
               <MessageCircle className="w-6 h-6" />
               <span>Messages</span>
+            </button>
+
+            <button
+              onClick={onOpenNotifications}
+              className="flex items-center gap-4 p-3 rounded-xl transition hover:bg-white/10 text-neutral-300 relative"
+            >
+              <div className="relative">
+                <Heart className="w-6 h-6" />
+                {unreadCount > 0 && (
+                  <span className="absolute -top-1.5 -right-1.5 bg-instagram-like text-white text-[10px] font-extrabold w-4 h-4 rounded-full flex items-center justify-center border border-black animate-pulse">
+                    {unreadCount > 9 ? '9+' : unreadCount}
+                  </span>
+                )}
+              </div>
+              <span>Notifications</span>
             </button>
 
             <button
@@ -72,7 +91,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               onClick={() => onNavigate('profile')}
               className={`flex items-center gap-4 p-3 rounded-xl transition hover:bg-white/10 ${currentView === 'profile' ? 'font-bold text-white' : 'text-neutral-300'}`}
             >
-              <img src={profile?.avatar_url} className="w-6 h-6 rounded-full object-cover border border-white/20" alt="Profile" />
+              <img src={profile?.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${profile?.username || 'me'}`} className="w-6 h-6 rounded-full object-cover border border-white/20" alt="Profile" />
               <span>Profile</span>
             </button>
 
@@ -112,14 +131,22 @@ export const Navbar: React.FC<NavbarProps> = ({
         <button onClick={() => onNavigate('explore')} className={`p-2 ${currentView === 'explore' ? 'text-white' : 'text-neutral-400'}`}>
           <Search className="w-6 h-6" />
         </button>
-        <button onClick={onOpenCreate} className="p-2 text-white">
+        <button onClick={onOpenCreate} className="p-2 text-neutral-400">
           <PlusSquare className="w-6 h-6" />
+        </button>
+        <button onClick={onOpenNotifications} className="p-2 text-neutral-400 relative">
+          <Heart className="w-6 h-6" />
+          {unreadCount > 0 && (
+            <span className="absolute top-1 right-1 bg-instagram-like text-white text-[9px] font-bold w-3.5 h-3.5 rounded-full flex items-center justify-center">
+              {unreadCount}
+            </span>
+          )}
         </button>
         <button onClick={onOpenChat} className="p-2 text-neutral-400">
           <MessageCircle className="w-6 h-6" />
         </button>
-        <button onClick={() => onNavigate('profile')} className="p-2">
-          <img src={profile?.avatar_url} className="w-6 h-6 rounded-full object-cover" alt="Profile" />
+        <button onClick={() => onNavigate('profile')} className={`p-2 ${currentView === 'profile' ? 'text-white' : 'text-neutral-400'}`}>
+          <User className="w-6 h-6" />
         </button>
       </nav>
     </>

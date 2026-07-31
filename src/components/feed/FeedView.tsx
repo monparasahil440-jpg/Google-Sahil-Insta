@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { Heart, MessageCircle, Send, Bookmark, MoreHorizontal, Camera, Upload, Sparkles, Plus, Image as ImageIcon } from 'lucide-react';
+import { Heart, MessageCircle, Send, Bookmark, MoreHorizontal, Camera, Upload, Sparkles, Plus } from 'lucide-react';
 import { Post } from '../../types/database.types';
 import { StoryViewerModal, StoryItemData } from '../stories/StoryViewerModal';
 import { ShareModal } from './ShareModal';
 import { useAuth } from '../../context/AuthContext';
 import { supabase } from '../../lib/supabase';
+import { compressImage } from '../../utils/imageCompressor';
 import toast from 'react-hot-toast';
 
 interface FeedViewProps {
@@ -14,13 +15,34 @@ interface FeedViewProps {
 }
 
 export const FeedView: React.FC<FeedViewProps> = ({ isCreateOpen, onCloseCreate, onOpenUserProfile }) => {
-  const { profile } = useAuth();
+  const { profile, user } = useAuth();
 
   const [posts, setPosts] = useState<Post[]>([]);
   const [stories, setStories] = useState<StoryItemData[]>([]);
   const [suggestedUsers, setSuggestedUsers] = useState<any[]>([]);
+  const [userAvatarsMap, setUserAvatarsMap] = useState<{ [username: string]: string }>({});
   const [commentText, setCommentText] = useState<{ [key: string]: string }>({});
   const [doubleTapId, setDoubleTapId] = useState<string | null>(null);
+
+  // Saved post IDs map
+  const [savedPostIds, setSavedPostIds] = useState<{ [key: string]: boolean }>(() => {
+    try {
+      const saved = localStorage.getItem('insta_saved_post_ids');
+      return saved ? JSON.parse(saved) : {};
+    } catch (e) {
+      return {};
+    }
+  });
+
+  // PERSISTENT FOLLOWING MAP
+  const [followingMap, setFollowingMap] = useState<{ [key: string]: boolean }>(() => {
+    try {
+      const saved = localStorage.getItem('insta_following_map');
+      return saved ? JSON.parse(saved) : {};
+    } catch (e) {
+      return {};
+    }
+  });
 
   // Story Viewer state
   const [isStoryViewerOpen, setIsStoryViewerOpen] = useState(false);
@@ -29,9 +51,6 @@ export const FeedView: React.FC<FeedViewProps> = ({ isCreateOpen, onCloseCreate,
   // Share modal state
   const [isShareOpen, setIsShareOpen] = useState(false);
 
-  // Follow states
-  const [followingMap, setFollowingMap] = useState<{ [key: string]: boolean }>({});
-
   // Photo studio creation state
   const [previewImage, setPreviewImage] = useState<string | null>(null);
   const [selectedFilter, setSelectedFilter] = useState('none');
@@ -39,33 +58,106 @@ export const FeedView: React.FC<FeedViewProps> = ({ isCreateOpen, onCloseCreate,
   const [location, setLocation] = useState('');
   const [createMode, setCreateMode] = useState<'post' | 'story'>('post');
 
-  // Load real data from Supabase
+  // Load posts, profiles, followings, and user avatars on mount
   useEffect(() => {
     fetchRealPosts();
     fetchRealProfiles();
-  }, []);
+    fetchSavedPostsFromSupabase();
+    fetchFollowingFromSupabase();
+    fetchUserAvatarsFromSupabase();
+  }, [profile?.username, profile?.id]);
 
-  const fetchRealPosts = async () => {
+  const fetchUserAvatarsFromSupabase = async () => {
     try {
-      const { data, error } = await supabase.from('posts').select('*').order('created_at', { ascending: false });
-      if (!error && data && data.length > 0) {
-        setPosts(data as Post[]);
-      }
-    } catch (e) {
-      console.warn("Supabase fetch fallback", e);
-    }
-  };
-
-  const fetchRealProfiles = async () => {
-    try {
-      const { data, error } = await supabase.from('profiles').select('*').limit(5);
-      if (!error && data && data.length > 0) {
-        setSuggestedUsers(data);
+      const { data, error } = await supabase.from('profiles').select('*');
+      if (!error && data) {
+        const map: { [key: string]: string } = {};
+        data.forEach((p: any) => {
+          if (p.username && p.avatar_url) map[p.username] = p.avatar_url;
+          if (p.id && p.avatar_url) map[p.id] = p.avatar_url;
+        });
+        setUserAvatarsMap(map);
       }
     } catch (e) {}
   };
 
-  const toggleLike = (postId: string) => {
+  const fetchFollowingFromSupabase = async () => {
+    if (!profile?.id && !profile?.username) return;
+    try {
+      const { data, error } = await supabase
+        .from('followers')
+        .select('*');
+
+      if (!error && data) {
+        const map: { [key: string]: boolean } = {};
+        data.forEach((r: any) => {
+          if (r.follower_id === profile?.id || r.follower_id === profile?.username) {
+            map[r.target_username] = true;
+          }
+        });
+        setFollowingMap(prev => {
+          const merged = { ...prev, ...map };
+          localStorage.setItem('insta_following_map', JSON.stringify(merged));
+          return merged;
+        });
+      }
+    } catch (e) {}
+  };
+
+  const fetchRealPosts = async () => {
+    let localUserPosts: Post[] = [];
+    try {
+      localUserPosts = JSON.parse(localStorage.getItem('insta_user_posts') || '[]');
+    } catch (e) {}
+
+    try {
+      const { data, error } = await supabase.from('posts').select('*').order('created_at', { ascending: false });
+      if (!error && data && data.length > 0) {
+        const merged = [...localUserPosts, ...(data as Post[])];
+        const uniquePosts = Array.from(new Map(merged.map(p => [p.id, p])).values());
+        setPosts(uniquePosts);
+      } else {
+        setPosts(localUserPosts);
+      }
+    } catch (e) {
+      setPosts(localUserPosts);
+    }
+  };
+
+  const fetchSavedPostsFromSupabase = async () => {
+    if (!profile?.id) return;
+    try {
+      const { data, error } = await supabase.from('saved_posts').select('post_id').eq('user_id', profile.id);
+      if (!error && data) {
+        const map: { [key: string]: boolean } = {};
+        data.forEach((row: any) => {
+          map[row.post_id] = true;
+        });
+        setSavedPostIds(prev => ({ ...prev, ...map }));
+        localStorage.setItem('insta_saved_post_ids', JSON.stringify({ ...savedPostIds, ...map }));
+      }
+    } catch (e) {}
+  };
+
+  const fetchRealProfiles = async () => {
+    try {
+      const { data, error } = await supabase.from('profiles').select('*').limit(20);
+      if (!error && data && data.length > 0) {
+        const filtered = data.filter((u: any) => {
+          const isSelf = u.username === profile?.username || u.id === profile?.id;
+          const isAlreadyFollowing = !!followingMap[u.username];
+          return !isSelf && !isAlreadyFollowing;
+        });
+        setSuggestedUsers(filtered);
+      } else {
+        setSuggestedUsers([]);
+      }
+    } catch (e) {
+      setSuggestedUsers([]);
+    }
+  };
+
+  const toggleLike = async (postId: string) => {
     setPosts(prev => prev.map(p => {
       if (p.id === postId) {
         const isLiked = !p.isLiked;
@@ -77,6 +169,12 @@ export const FeedView: React.FC<FeedViewProps> = ({ isCreateOpen, onCloseCreate,
       }
       return p;
     }));
+
+    try {
+      if (profile?.id) {
+        await supabase.from('likes').insert([{ user_id: profile.id, post_id: postId }]);
+      }
+    } catch (e) {}
   };
 
   const handleDoubleTap = (postId: string) => {
@@ -85,34 +183,62 @@ export const FeedView: React.FC<FeedViewProps> = ({ isCreateOpen, onCloseCreate,
     setTimeout(() => setDoubleTapId(null), 800);
   };
 
-  const toggleSave = (postId: string) => {
+  const toggleSave = async (postId: string) => {
+    const isSaved = !savedPostIds[postId];
+    const newSavedMap = { ...savedPostIds, [postId]: isSaved };
+    setSavedPostIds(newSavedMap);
+    localStorage.setItem('insta_saved_post_ids', JSON.stringify(newSavedMap));
+
     setPosts(prev => prev.map(p => {
       if (p.id === postId) {
-        const isSaved = !p.isSaved;
-        toast(isSaved ? "Saved to collection" : "Removed from saved");
         return { ...p, isSaved };
       }
       return p;
     }));
+
+    toast(isSaved ? "Saved to collection" : "Removed from saved");
+
+    try {
+      if (profile?.id) {
+        if (isSaved) {
+          await supabase.from('saved_posts').insert([{ user_id: profile.id, post_id: postId }]);
+        } else {
+          await supabase.from('saved_posts').delete().eq('user_id', profile.id).eq('post_id', postId);
+        }
+      }
+    } catch (e) {}
   };
 
-  const addComment = (postId: string) => {
+  const addComment = async (postId: string) => {
     const text = commentText[postId]?.trim();
     if (!text || !profile) return;
+
+    const newComment = {
+      id: 'c_' + Date.now(),
+      post_id: postId,
+      username: profile.username,
+      text,
+      likes_count: 0,
+      created_at: 'Just now'
+    };
+
     setPosts(prev => prev.map(p => {
       if (p.id === postId) {
-        const newComments = [...(p.comments || []), {
-          id: 'c_' + Date.now(),
-          post_id: postId,
-          username: profile.username,
-          text,
-          likes_count: 0,
-          created_at: 'Just now'
-        }];
+        const newComments = [...(p.comments || []), newComment];
         return { ...p, comments: newComments, comments_count: newComments.length };
       }
       return p;
     }));
+
+    try {
+      await supabase.from('comments').insert([{
+        id: newComment.id,
+        user_id: profile.id,
+        post_id: postId,
+        text
+      }]);
+    } catch (e) {}
+
     setCommentText(prev => ({ ...prev, [postId]: '' }));
   };
 
@@ -132,12 +258,30 @@ export const FeedView: React.FC<FeedViewProps> = ({ isCreateOpen, onCloseCreate,
     toast.success("Comment liked!");
   };
 
-  const toggleFollow = (username: string) => {
-    setFollowingMap(prev => {
-      const isFollowing = !prev[username];
-      toast(isFollowing ? `Following @${username}` : `Unfollowed @${username}`);
-      return { ...prev, [username]: isFollowing };
-    });
+  const toggleFollow = async (targetUsername: string) => {
+    const isCurrentlyFollowing = !!followingMap[targetUsername];
+    const newFollowingStatus = !isCurrentlyFollowing;
+
+    const updatedMap = { ...followingMap, [targetUsername]: newFollowingStatus };
+    setFollowingMap(updatedMap);
+    localStorage.setItem('insta_following_map', JSON.stringify(updatedMap));
+
+    setSuggestedUsers(prev => prev.filter(u => u.username !== targetUsername));
+
+    toast(newFollowingStatus ? `Following @${targetUsername}` : `Unfollowed @${targetUsername}`);
+
+    try {
+      if (profile?.id) {
+        if (newFollowingStatus) {
+          await supabase.from('followers').insert([{
+            follower_id: profile.id,
+            target_username: targetUsername
+          }]);
+        } else {
+          await supabase.from('followers').delete().eq('follower_id', profile.id).eq('target_username', targetUsername);
+        }
+      }
+    } catch (e) {}
   };
 
   const openStoryViewer = (index: number) => {
@@ -145,12 +289,14 @@ export const FeedView: React.FC<FeedViewProps> = ({ isCreateOpen, onCloseCreate,
     setIsStoryViewerOpen(true);
   };
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
       const reader = new FileReader();
-      reader.onload = (evt) => {
-        setPreviewImage(evt.target?.result as string);
+      reader.onload = async (evt) => {
+        const rawUrl = evt.target?.result as string;
+        const compressed = await compressImage(rawUrl);
+        setPreviewImage(compressed);
       };
       reader.readAsDataURL(file);
     }
@@ -162,23 +308,36 @@ export const FeedView: React.FC<FeedViewProps> = ({ isCreateOpen, onCloseCreate,
       return;
     }
 
+    const compressedImg = await compressImage(previewImage);
+    const userId = profile?.id || user?.id || 'usr_' + Date.now();
+    const username = profile?.username || 'sahil_user';
+    const avatarUrl = profile?.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${username}`;
+
     if (createMode === 'story') {
       const newStoryItem: StoryItemData = {
         id: 's_' + Date.now(),
-        username: profile?.username || 'Your Story',
-        avatar_url: profile?.avatar_url || 'https://api.dicebear.com/7.x/avataaars/svg?seed=me',
-        media_url: previewImage,
+        username,
+        avatar_url: avatarUrl,
+        media_url: compressedImg,
         timeAgo: 'Just now'
       };
       setStories([newStoryItem, ...stories]);
+
+      try {
+        await supabase.from('stories').insert([{
+          user_id: userId,
+          media_url: compressedImg
+        }]);
+      } catch (e) {}
+
       toast.success("Story added for 24 hours!");
     } else {
       const newPost: Post = {
         id: 'post_' + Date.now(),
-        user_id: profile?.id || 'u_me',
-        username: profile?.username || 'sahil_user',
-        avatar_url: profile?.avatar_url || 'https://api.dicebear.com/7.x/avataaars/svg?seed=me',
-        image_url: previewImage,
+        user_id: userId,
+        username,
+        avatar_url: avatarUrl,
+        image_url: compressedImg,
         caption: caption || 'New post!',
         filter_effect: selectedFilter,
         location: location || '',
@@ -189,17 +348,23 @@ export const FeedView: React.FC<FeedViewProps> = ({ isCreateOpen, onCloseCreate,
         created_at: 'JUST NOW'
       };
 
-      // Try inserting to Supabase table
       try {
-        await supabase.from('posts').insert([{
-          user_id: newPost.user_id,
-          image_url: newPost.image_url,
-          caption: newPost.caption,
-          location: newPost.location
-        }]);
+        const existingUserPosts: Post[] = JSON.parse(localStorage.getItem('insta_user_posts') || '[]');
+        const updatedUserPosts = [newPost, ...existingUserPosts.slice(0, 10)];
+        localStorage.setItem('insta_user_posts', JSON.stringify(updatedUserPosts));
       } catch (e) {}
 
-      setPosts([newPost, ...posts]);
+      try {
+        await supabase.from('posts').insert([{
+          id: newPost.id,
+          user_id: userId,
+          image_url: compressedImg,
+          caption: caption || 'New post!',
+          location: location || ''
+        }]);
+      } catch (e: any) {}
+
+      setPosts(prev => [newPost, ...prev]);
       toast.success("Post published!");
     }
 
@@ -207,6 +372,19 @@ export const FeedView: React.FC<FeedViewProps> = ({ isCreateOpen, onCloseCreate,
     setCaption('');
     setLocation('');
     onCloseCreate();
+  };
+
+  const getValidAvatarUrl = (postItem: Post) => {
+    if (postItem.username === profile?.username || postItem.user_id === profile?.id) {
+      if (profile?.avatar_url) return profile.avatar_url;
+    }
+    if (userAvatarsMap[postItem.username]) {
+      return userAvatarsMap[postItem.username];
+    }
+    if (userAvatarsMap[postItem.user_id]) {
+      return userAvatarsMap[postItem.user_id];
+    }
+    return postItem.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${postItem.username}`;
   };
 
   return (
@@ -218,7 +396,7 @@ export const FeedView: React.FC<FeedViewProps> = ({ isCreateOpen, onCloseCreate,
           {/* YOUR STORY ADD BUTTON */}
           <div className="flex flex-col items-center gap-1 min-w-[70px] cursor-pointer group relative" onClick={() => stories.length > 0 && openStoryViewer(0)}>
             <div className="w-16 h-16 rounded-full p-[2.5px] instagram-story-ring flex items-center justify-center transition transform group-hover:scale-105 relative">
-              <img src={profile?.avatar_url} className="w-full h-full rounded-full object-cover border-2 border-black" alt="Your Story" />
+              <img src={profile?.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${profile?.username || 'me'}`} className="w-full h-full rounded-full object-cover border-2 border-black" alt="Your Story" />
               <button
                 onClick={(e) => {
                   e.stopPropagation();
@@ -261,171 +439,176 @@ export const FeedView: React.FC<FeedViewProps> = ({ isCreateOpen, onCloseCreate,
             </label>
           </div>
         ) : (
-          posts.map((post) => (
-            <article key={post.id} className="bg-dark-primary border border-dark-border rounded-xl overflow-hidden">
-              {/* POST HEADER */}
-              <div className="flex items-center justify-between p-3.5">
-                <div className="flex items-center gap-3">
-                  <img
-                    src={post.avatar_url}
-                    className="w-9 h-9 rounded-full object-cover cursor-pointer"
-                    alt={post.username}
-                    onClick={() => onOpenUserProfile && onOpenUserProfile(post.username)}
-                  />
-                  <div className="flex flex-col">
-                    <div className="flex items-center gap-2">
-                      <span
-                        onClick={() => onOpenUserProfile && onOpenUserProfile(post.username)}
-                        className="text-sm font-semibold text-white cursor-pointer hover:underline"
-                      >
-                        {post.username}
-                      </span>
-                      {post.username !== profile?.username && (
-                        <button
-                          onClick={() => toggleFollow(post.username)}
-                          className={`text-xs font-semibold ${followingMap[post.username] ? 'text-neutral-400' : 'text-instagram-blue'}`}
+          posts.map((post) => {
+            const isMyPost = post.username === profile?.username || post.user_id === profile?.id;
+            const isFollowingAuthor = !!followingMap[post.username] || !!followingMap[post.user_id];
+            const isSaved = savedPostIds[post.id] || post.isSaved;
+
+            return (
+              <article key={post.id} className="bg-dark-primary border border-dark-border rounded-xl overflow-hidden">
+                {/* POST HEADER */}
+                <div className="flex items-center justify-between p-3.5 min-h-[56px] border-b border-dark-border/30">
+                  <div className="flex items-center gap-3">
+                    <img
+                      src={getValidAvatarUrl(post)}
+                      className="w-9 h-9 rounded-full object-cover cursor-pointer border border-white/20"
+                      alt={post.username}
+                      onClick={() => onOpenUserProfile && onOpenUserProfile(post.username)}
+                    />
+                    <div className="flex flex-col">
+                      <div className="flex items-center gap-2">
+                        <span
+                          onClick={() => onOpenUserProfile && onOpenUserProfile(post.username)}
+                          className="text-sm font-semibold text-white cursor-pointer hover:underline"
                         >
-                          {followingMap[post.username] ? '• Following' : '• Follow'}
-                        </button>
-                      )}
-                    </div>
-                    {post.location && <span className="text-xs text-neutral-400">{post.location}</span>}
-                  </div>
-                </div>
-                <button className="text-neutral-400 hover:text-white"><MoreHorizontal className="w-5 h-5" /></button>
-              </div>
-
-              {/* POST IMAGE WITH DOUBLE TAP HEART */}
-              <div
-                className="relative bg-black cursor-pointer overflow-hidden"
-                onDoubleClick={() => handleDoubleTap(post.id)}
-              >
-                <img src={post.image_url} className={`w-full max-h-[600px] object-cover ${post.filter_effect || ''}`} alt="Post" />
-                {doubleTapId === post.id && (
-                  <Heart className="w-24 h-24 text-white fill-white absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 animate-ping" />
-                )}
-              </div>
-
-              {/* POST ACTIONS */}
-              <div className="flex items-center justify-between p-3.5">
-                <div className="flex items-center gap-4">
-                  <button onClick={() => toggleLike(post.id)} className="transition hover:scale-110">
-                    <Heart className={`w-6 h-6 ${post.isLiked ? 'text-instagram-like fill-instagram-like' : 'text-white'}`} />
-                  </button>
-                  <button className="text-white hover:text-neutral-300"><MessageCircle className="w-6 h-6" /></button>
-                  <button onClick={() => setIsShareOpen(true)} className="text-white hover:text-neutral-300"><Send className="w-6 h-6" /></button>
-                </div>
-                <button onClick={() => toggleSave(post.id)} className="text-white">
-                  <Bookmark className={`w-6 h-6 ${post.isSaved ? 'fill-white' : ''}`} />
-                </button>
-              </div>
-
-              {/* POST BODY */}
-              <div className="px-3.5 pb-3.5 flex flex-col gap-1.5">
-                <span className="text-sm font-semibold text-white">{post.likes_count} likes</span>
-                <p className="text-sm text-neutral-200">
-                  <span
-                    onClick={() => onOpenUserProfile && onOpenUserProfile(post.username)}
-                    className="font-semibold text-white mr-2 cursor-pointer hover:underline"
-                  >
-                    {post.username}
-                  </span>
-                  {post.caption}
-                </p>
-
-                {/* COMMENTS WITH LIKES */}
-                {post.comments && post.comments.length > 0 && (
-                  <div className="flex flex-col gap-2 mt-2 border-t border-dark-border/40 pt-2">
-                    {post.comments.map((c) => (
-                      <div key={c.id} className="flex justify-between items-center text-xs text-neutral-300">
-                        <div>
-                          <span
-                            onClick={() => onOpenUserProfile && onOpenUserProfile(c.username)}
-                            className="font-semibold mr-1.5 text-white cursor-pointer hover:underline"
+                          {post.username}
+                        </span>
+                        {/* INSTAGRAM RULE: ONLY SHOW BLUE FOLLOW BUTTON IF YOU ARE NOT FOLLOWING AND IT'S NOT YOUR POST */}
+                        {!isMyPost && !isFollowingAuthor && (
+                          <button
+                            onClick={() => toggleFollow(post.username)}
+                            className="text-xs font-semibold text-instagram-blue hover:underline"
                           >
-                            {c.username}
-                          </span>
-                          <span>{c.text}</span>
-                        </div>
-                        <button onClick={() => toggleCommentLike(post.id, c.id)} className="text-neutral-400 hover:text-instagram-like flex items-center gap-1">
-                          <Heart className="w-3.5 h-3.5" />
-                          <span className="text-[10px]">{c.likes_count || 0}</span>
-                        </button>
+                            • Follow
+                          </button>
+                        )}
                       </div>
-                    ))}
+                      {post.location && <span className="text-xs text-neutral-400">{post.location}</span>}
+                    </div>
                   </div>
-                )}
+                  <button className="text-neutral-400 hover:text-white"><MoreHorizontal className="w-5 h-5" /></button>
+                </div>
 
-                <span className="text-[10px] text-neutral-500 uppercase tracking-wide mt-1">{post.created_at}</span>
-              </div>
-
-              {/* ADD COMMENT */}
-              <div className="flex items-center border-t border-dark-border px-3.5 py-2">
-                <input
-                  type="text"
-                  placeholder="Add a comment..."
-                  value={commentText[post.id] || ''}
-                  onChange={(e) => setCommentText({ ...commentText, [post.id]: e.target.value })}
-                  onKeyDown={(e) => e.key === 'Enter' && addComment(post.id)}
-                  className="flex-1 bg-transparent border-none text-sm text-white focus:outline-none placeholder-neutral-500"
-                />
-                <button
-                  onClick={() => addComment(post.id)}
-                  disabled={!commentText[post.id]?.trim()}
-                  className="text-instagram-blue text-sm font-semibold disabled:opacity-40"
+                {/* POST IMAGE WITH DOUBLE TAP HEART */}
+                <div
+                  className="relative bg-black cursor-pointer overflow-hidden"
+                  onDoubleClick={() => handleDoubleTap(post.id)}
                 >
-                  Post
-                </button>
-              </div>
-            </article>
-          ))
+                  <img src={post.image_url} className={`w-full max-h-[600px] object-cover ${post.filter_effect || ''}`} alt="Post" />
+                  {doubleTapId === post.id && (
+                    <Heart className="w-24 h-24 text-white fill-white absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 animate-ping" />
+                  )}
+                </div>
+
+                {/* POST ACTIONS */}
+                <div className="flex items-center justify-between p-3.5">
+                  <div className="flex items-center gap-4">
+                    <button onClick={() => toggleLike(post.id)} className="transition hover:scale-110">
+                      <Heart className={`w-6 h-6 ${post.isLiked ? 'text-instagram-like fill-instagram-like' : 'text-white'}`} />
+                    </button>
+                    <button className="text-white hover:text-neutral-300"><MessageCircle className="w-6 h-6" /></button>
+                    <button onClick={() => setIsShareOpen(true)} className="text-white hover:text-neutral-300"><Send className="w-6 h-6" /></button>
+                  </div>
+                  <button onClick={() => toggleSave(post.id)} className="text-white transition hover:scale-110">
+                    <Bookmark className={`w-6 h-6 ${isSaved ? 'fill-white text-white' : 'text-white'}`} />
+                  </button>
+                </div>
+
+                {/* POST BODY */}
+                <div className="px-3.5 pb-3.5 flex flex-col gap-1.5">
+                  <span className="text-sm font-semibold text-white">{post.likes_count} likes</span>
+                  <p className="text-sm text-neutral-200">
+                    <span
+                      onClick={() => onOpenUserProfile && onOpenUserProfile(post.username)}
+                      className="font-semibold text-white mr-2 cursor-pointer hover:underline"
+                    >
+                      {post.username}
+                    </span>
+                    {post.caption}
+                  </p>
+
+                  {/* COMMENTS WITH LIKES */}
+                  {post.comments && post.comments.length > 0 && (
+                    <div className="flex flex-col gap-2 mt-2 border-t border-dark-border/40 pt-2">
+                      {post.comments.map((c) => (
+                        <div key={c.id} className="flex justify-between items-center text-xs text-neutral-300">
+                          <div>
+                            <span
+                              onClick={() => onOpenUserProfile && onOpenUserProfile(c.username)}
+                              className="font-semibold mr-1.5 text-white cursor-pointer hover:underline"
+                            >
+                              {c.username}
+                            </span>
+                            <span>{c.text}</span>
+                          </div>
+                          <button onClick={() => toggleCommentLike(post.id, c.id)} className="text-neutral-400 hover:text-instagram-like flex items-center gap-1">
+                            <Heart className="w-3.5 h-3.5" />
+                            <span className="text-[10px]">{c.likes_count || 0}</span>
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  <span className="text-[10px] text-neutral-500 uppercase tracking-wide mt-1">{post.created_at}</span>
+                </div>
+
+                {/* ADD COMMENT */}
+                <div className="flex items-center border-t border-dark-border px-3.5 py-2">
+                  <input
+                    type="text"
+                    placeholder="Add a comment..."
+                    value={commentText[post.id] || ''}
+                    onChange={(e) => setCommentText({ ...commentText, [post.id]: e.target.value })}
+                    onKeyDown={(e) => e.key === 'Enter' && addComment(post.id)}
+                    className="flex-1 bg-transparent border-none text-sm text-white focus:outline-none placeholder-neutral-500"
+                  />
+                  <button
+                    onClick={() => addComment(post.id)}
+                    disabled={!commentText[post.id]?.trim()}
+                    className="text-instagram-blue text-sm font-semibold disabled:opacity-40"
+                  >
+                    Post
+                  </button>
+                </div>
+              </article>
+            );
+          })
         )}
       </div>
 
       {/* RIGHT SUGGESTIONS PANEL */}
-      <aside className="hidden lg:flex flex-col w-80 gap-5 pt-2">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3 cursor-pointer" onClick={() => onOpenUserProfile && onOpenUserProfile(profile?.username || '')}>
-            <img src={profile?.avatar_url} className="w-12 h-12 rounded-full object-cover" alt="Me" />
-            <div className="flex flex-col">
-              <span className="text-sm font-semibold text-white">{profile?.username}</span>
-              <span className="text-xs text-neutral-400">{profile?.full_name}</span>
+      {suggestedUsers.length > 0 && (
+        <aside className="hidden lg:flex flex-col w-80 gap-5 pt-2">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3 cursor-pointer" onClick={() => onOpenUserProfile && onOpenUserProfile(profile?.username || '')}>
+              <img src={profile?.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${profile?.username || 'me'}`} className="w-12 h-12 rounded-full object-cover border border-white/20" alt="Me" />
+              <div className="flex flex-col">
+                <span className="text-sm font-semibold text-white">{profile?.username}</span>
+                <span className="text-xs text-neutral-400">{profile?.full_name}</span>
+              </div>
             </div>
           </div>
-        </div>
 
-        {suggestedUsers.length > 0 && (
-          <>
-            <div className="flex justify-between items-center text-xs font-semibold">
-              <span className="text-neutral-400">Suggested for you</span>
-              <button className="text-white hover:text-neutral-300">See All</button>
-            </div>
+          <div className="flex justify-between items-center text-xs font-semibold">
+            <span className="text-neutral-400">Suggested for you</span>
+            <button className="text-white hover:text-neutral-300">See All</button>
+          </div>
 
-            <div className="flex flex-col gap-3">
-              {suggestedUsers.map((s) => (
-                <div key={s.id} className="flex items-center justify-between">
-                  <div
-                    className="flex items-center gap-3 cursor-pointer group"
-                    onClick={() => onOpenUserProfile && onOpenUserProfile(s.username)}
-                  >
-                    <img src={s.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${s.username}`} className="w-9 h-9 rounded-full object-cover group-hover:opacity-80 transition" alt={s.username} />
-                    <div className="flex flex-col">
-                      <span className="text-xs font-semibold text-white group-hover:underline">@{s.username}</span>
-                      <span className="text-[10px] text-neutral-400">{s.full_name}</span>
-                    </div>
+          <div className="flex flex-col gap-3">
+            {suggestedUsers.map((s) => (
+              <div key={s.id} className="flex items-center justify-between">
+                <div
+                  className="flex items-center gap-3 cursor-pointer group"
+                  onClick={() => onOpenUserProfile && onOpenUserProfile(s.username)}
+                >
+                  <img src={s.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${s.username}`} className="w-9 h-9 rounded-full object-cover group-hover:opacity-80 transition border border-white/10" alt={s.username} />
+                  <div className="flex flex-col">
+                    <span className="text-xs font-semibold text-white group-hover:underline">@{s.username}</span>
+                    <span className="text-[10px] text-neutral-400">{s.full_name}</span>
                   </div>
-                  <button
-                    onClick={() => toggleFollow(s.username)}
-                    className={`text-xs font-semibold ${followingMap[s.username] ? 'text-neutral-400' : 'text-instagram-blue hover:text-white'}`}
-                  >
-                    {followingMap[s.username] ? 'Following' : 'Follow'}
-                  </button>
                 </div>
-              ))}
-            </div>
-          </>
-        )}
-      </aside>
+                <button
+                  onClick={() => toggleFollow(s.username)}
+                  className="text-xs font-semibold text-instagram-blue hover:text-white"
+                >
+                  Follow
+                </button>
+              </div>
+            ))}
+          </div>
+        </aside>
+      )}
 
       {/* STORY VIEWER MODAL */}
       <StoryViewerModal
@@ -488,7 +671,7 @@ export const FeedView: React.FC<FeedViewProps> = ({ isCreateOpen, onCloseCreate,
                     <button
                       key={f}
                       onClick={() => setSelectedFilter(f)}
-                      className={`flex flex-col items-center gap-1 p-1 rounded-lg border ${selectedFilter === f ? 'border-instagram-blue' : 'border-transparent'}`}
+                      className={`flex flex-col items-center gap-1 p-1 rounded-lg border ${selectedFilter === f ? 'border-transparent' : 'border-transparent'}`}
                     >
                       <div className={`w-full h-12 rounded bg-neutral-800 ${f}`} />
                       <span className="text-[10px] text-neutral-400 capitalize">{f.replace('filter-', '')}</span>

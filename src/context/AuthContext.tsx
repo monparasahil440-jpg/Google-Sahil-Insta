@@ -30,14 +30,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const u = JSON.parse(savedSession);
       return {
         id: u.id || 'user_1',
-        username: u.user_metadata?.username || u.email?.split('@')[0] || 'sahil_monpara',
-        full_name: u.user_metadata?.full_name || 'Sahil Monpara',
+        username: u.user_metadata?.username || u.email?.split('@')[0] || 'sahil_user',
+        full_name: u.user_metadata?.full_name || 'Instagram User',
         avatar_url: u.user_metadata?.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${u.email || 'sahil'}`,
         cover_url: 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?auto=format&fit=crop&w=1000&q=80',
-        bio: 'Developer & Digital Creator 🚀 | Building Antigravity Social Media platform',
-        website: 'https://github.com/monparasahil440-jpg/Google-Sahil-Insta',
-        is_verified: true,
-        is_admin: true,
+        bio: 'Welcome to my Instagram profile!',
+        website: '',
+        is_verified: false,
+        is_admin: false,
+        followers: 0,
+        following: 0,
         created_at: new Date().toISOString(),
       };
     }
@@ -83,23 +85,47 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const createCustomProfile = (authUser: any) => {
+  const createCustomProfile = async (authUser: any) => {
     const meta = authUser.user_metadata || {};
+    const localProf = localStorage.getItem('insta_profile');
+    let existingProfile: Profile | null = null;
+    if (localProf) {
+      try {
+        existingProfile = JSON.parse(localProf);
+      } catch (e) {}
+    }
+
     const newP: Profile = {
       id: authUser.id,
-      username: meta.username || authUser.email?.split('@')[0] || 'sahil_monpara',
-      full_name: meta.full_name || meta.name || 'Instagram User',
-      avatar_url: meta.avatar_url || meta.picture || `https://api.dicebear.com/7.x/avataaars/svg?seed=${authUser.email || 'sahil'}`,
+      username: existingProfile?.username || meta.username || authUser.email?.split('@')[0] || 'sahil_user',
+      full_name: existingProfile?.full_name || meta.full_name || meta.name || 'Instagram User',
+      avatar_url: existingProfile?.avatar_url || meta.avatar_url || meta.picture || `https://api.dicebear.com/7.x/avataaars/svg?seed=${authUser.email || 'sahil'}`,
       cover_url: 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?auto=format&fit=crop&w=1000&q=80',
-      bio: 'Welcome to my Instagram!',
-      website: '',
+      bio: existingProfile?.bio || 'Welcome to my Instagram profile!',
+      website: existingProfile?.website || '',
       is_verified: false,
       is_admin: false,
       created_at: new Date().toISOString(),
     };
+
     setProfile(newP);
     localStorage.setItem('insta_profile', JSON.stringify(newP));
     localStorage.setItem('insta_session', JSON.stringify(authUser));
+
+    // UPSERT TO SUPABASE PROFILES TABLE
+    try {
+      await supabase.from('profiles').upsert([{
+        id: newP.id,
+        username: newP.username,
+        full_name: newP.full_name,
+        avatar_url: newP.avatar_url,
+        bio: newP.bio,
+        website: newP.website,
+        updated_at: new Date().toISOString()
+      }]);
+    } catch (e) {
+      console.warn("Supabase profile sync notice:", e);
+    }
   };
 
   const signIn = async (email: string, password: string): Promise<boolean> => {
@@ -112,25 +138,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       toast.success("Welcome back to Instagram!");
       return true;
     } catch (err: any) {
-      // Create user account with submitted credentials
       const customUser = { id: 'usr_' + Date.now(), email };
-      const customProf: Profile = {
-        id: customUser.id,
-        username: email.split('@')[0],
-        full_name: email.split('@')[0],
-        avatar_url: `https://api.dicebear.com/7.x/avataaars/svg?seed=${email}`,
-        cover_url: 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?auto=format&fit=crop&w=1000&q=80',
-        bio: 'Welcome to my Instagram profile!',
-        website: '',
-        is_verified: false,
-        is_admin: false,
-        created_at: new Date().toISOString()
-      };
       setUser(customUser);
-      setProfile(customProf);
-      localStorage.setItem('insta_session', JSON.stringify(customUser));
-      localStorage.setItem('insta_profile', JSON.stringify(customProf));
-      toast.success(`Logged in as @${customProf.username}`);
+      createCustomProfile(customUser);
+      toast.success(`Logged in as @${email.split('@')[0]}`);
       return true;
     } finally {
       setLoading(false);
@@ -150,6 +161,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (error) throw error;
 
       const newUser = data.user || { id: 'usr_' + Date.now(), email };
+      setUser(newUser);
+      
       const newProf: Profile = {
         id: newUser.id,
         username: username || email.split('@')[0],
@@ -163,14 +176,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         created_at: new Date().toISOString()
       };
 
-      setUser(newUser);
       setProfile(newProf);
-      localStorage.setItem('insta_session', JSON.stringify(newUser));
       localStorage.setItem('insta_profile', JSON.stringify(newProf));
+      localStorage.setItem('insta_session', JSON.stringify(newUser));
+
+      try {
+        await supabase.from('profiles').upsert([newProf]);
+      } catch (e) {}
+
       toast.success("Account created successfully!");
       return true;
     } catch (err: any) {
       const newUser = { id: 'usr_' + Date.now(), email };
+      setUser(newUser);
       const newProf: Profile = {
         id: newUser.id,
         username: username || email.split('@')[0],
@@ -183,10 +201,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         is_admin: false,
         created_at: new Date().toISOString()
       };
-      setUser(newUser);
       setProfile(newProf);
-      localStorage.setItem('insta_session', JSON.stringify(newUser));
       localStorage.setItem('insta_profile', JSON.stringify(newProf));
+      localStorage.setItem('insta_session', JSON.stringify(newUser));
       toast.success(`Account @${newProf.username} registered!`);
       return true;
     } finally {
@@ -203,8 +220,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
       });
       if (error) {
-        console.warn("Supabase OAuth notice:", error.message);
-        // If provider not enabled in Supabase dashboard, log in with Google profile fallback
         const googleUser = {
           id: 'google_' + Date.now(),
           email: 'monparasahil440@gmail.com',
@@ -246,7 +261,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const updateProfileState = (updated: Partial<Profile>) => {
     setProfile(prev => {
       const p = prev ? { ...prev, ...updated } : null;
-      if (p) localStorage.setItem('insta_profile', JSON.stringify(p));
+      if (p) {
+        localStorage.setItem('insta_profile', JSON.stringify(p));
+        if (p.id) {
+          supabase.from('profiles').upsert([{
+            id: p.id,
+            username: p.username,
+            full_name: p.full_name,
+            bio: p.bio,
+            website: p.website,
+            avatar_url: p.avatar_url,
+            updated_at: new Date().toISOString()
+          }]).then();
+        }
+      }
       return p;
     });
   };

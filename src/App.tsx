@@ -18,10 +18,16 @@ import { AdminDashboardModal } from './components/admin/AdminDashboardModal';
 export const MainAppContent: React.FC = () => {
   const { user } = useAuth();
   const [currentView, setCurrentView] = useState<'feed' | 'reels' | 'explore' | 'profile'>('feed');
+  const [targetUsername, setTargetUsername] = useState<string | undefined>(undefined);
   const [isAuthOpen, setIsAuthOpen] = useState(false);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [isAdminOpen, setIsAdminOpen] = useState(false);
+
+  const handleOpenUserProfile = (username?: string) => {
+    setTargetUsername(username);
+    setCurrentView('profile');
+  };
 
   // IF LOGGED OUT -> SHOW FULL-PAGE LOGIN / SIGNUP SCREEN IMMEDIATELY
   if (!user) {
@@ -38,7 +44,10 @@ export const MainAppContent: React.FC = () => {
       {/* NAVBAR SIDEBAR & BOTTOM BAR */}
       <Navbar
         currentView={currentView}
-        onNavigate={(view) => setCurrentView(view as any)}
+        onNavigate={(view) => {
+          if (view === 'profile') setTargetUsername(undefined);
+          setCurrentView(view as any);
+        }}
         onOpenCreate={() => setIsCreateOpen(true)}
         onOpenChat={() => setIsChatOpen(true)}
         onOpenAdmin={() => setIsAdminOpen(true)}
@@ -50,11 +59,17 @@ export const MainAppContent: React.FC = () => {
           <FeedView
             isCreateOpen={isCreateOpen}
             onCloseCreate={() => setIsCreateOpen(false)}
+            onOpenUserProfile={handleOpenUserProfile}
           />
         )}
         {currentView === 'reels' && <ReelsView />}
         {currentView === 'explore' && <ExploreView />}
-        {currentView === 'profile' && <ProfileView />}
+        {currentView === 'profile' && (
+          <ProfileView
+            targetUsername={targetUsername}
+            onBackToSelf={() => setTargetUsername(undefined)}
+          />
+        )}
       </main>
 
       {/* MODALS */}

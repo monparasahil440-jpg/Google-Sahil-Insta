@@ -53,14 +53,6 @@ export const Navbar: React.FC<NavbarProps> = ({
             </button>
 
             <button
-              onClick={() => onNavigate('reels')}
-              className={`flex items-center gap-4 p-3 rounded-xl transition hover:bg-white/10 ${currentView === 'reels' ? 'font-bold text-white' : 'text-neutral-300'}`}
-            >
-              <Film className="w-6 h-6" />
-              <span>Reels</span>
-            </button>
-
-            <button
               onClick={onOpenChat}
               className="flex items-center gap-4 p-3 rounded-xl transition hover:bg-white/10 text-neutral-300"
             >
@@ -123,8 +115,8 @@ export const Navbar: React.FC<NavbarProps> = ({
         <button onClick={onOpenCreate} className="p-2 text-white">
           <PlusSquare className="w-6 h-6" />
         </button>
-        <button onClick={() => onNavigate('reels')} className={`p-2 ${currentView === 'reels' ? 'text-white' : 'text-neutral-400'}`}>
-          <Film className="w-6 h-6" />
+        <button onClick={onOpenChat} className="p-2 text-neutral-400">
+          <MessageCircle className="w-6 h-6" />
         </button>
         <button onClick={() => onNavigate('profile')} className="p-2">
           <img src={profile?.avatar_url} className="w-6 h-6 rounded-full object-cover" alt="Profile" />

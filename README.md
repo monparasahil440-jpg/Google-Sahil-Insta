@@ -1,68 +1,98 @@
-# 📸 Instagram Web Platform (`D:\Antigravity Social Media`)
+# 📸 Enterprise Instagram Social Media Platform
 
-A full-featured, ultra-fast Instagram Web Clone designed for **GitHub Pages** static deployment and integrated directly with **Supabase** (Auth, Database, and Media Storage).
-
----
-
-## 🌟 Live Features Included
-* **📱 Feed & Stories**: Responsive layout matching Instagram desktop and mobile web, interactive stories tray with progress animations, post like/double-tap heart animation, and real-time comment threads.
-* **📸 Photo Studio & Filter Engine**: Live camera capture via Web Camera API, local photo upload, and real-time Instagram image filters (Clarendon, Juno, Lark, Sepia, Vintage).
-* **🎬 Reels Short Video Feed**: Vertical full-bleed video player with sound controls and live like counts.
-* **💬 Direct Messaging System**: Interactive DM chat interface with contacts and instant messaging.
-* **🔍 Search & Explore**: Grid discovery view and user profiles.
-* **⚡ Supabase Integration**: Pre-configured with database fallback and storage upload methods using project URL `https://rcjksdklfisxtignxevj.supabase.co`.
-* **🌙 Dark & Light Theme**: Toggle themes on the fly.
+A production-ready, full-stack **Instagram Clone** built with **React 18, TypeScript, Vite, Tailwind CSS, Lucide Icons, Supabase, and WebRTC**, automated for **GitHub Pages** deployment via **GitHub Actions**.
 
 ---
 
-## 🛠️ Step 1: Run & Test Locally
+## 🚀 Tech Stack
 
-You can open `index.html` directly in your browser or run a simple local web server:
+- **Frontend**: React 18, TypeScript, Vite, React Router, Tailwind CSS, Framer Motion, Lucide React, React Hot Toast.
+- **Backend & Database**: Supabase (PostgreSQL 22+ Tables, Row Level Security, Realtime Subscriptions, Media Storage).
+- **Voice & Video Calls**: WebRTC P2P Streams + Supabase Realtime Signaling.
+- **CI/CD & Hosting**: GitHub Pages + GitHub Actions (`.github/workflows/deploy.yml`).
+
+---
+
+## 🌟 Key Features
+
+1. **🔐 Authentication & Security**:
+   - Email & Password Login / Register.
+   - OAuth SSO support (Google & GitHub).
+   - Session persistence, Password Reset, Remember Me.
+
+2. **📸 Photo Studio & Filter Engine**:
+   - Web Camera API live capture & file uploads.
+   - Real-time Instagram CSS filters (Clarendon, Juno, Lark, Sepia, Vintage).
+   - Caption & Location tagging.
+
+3. **📱 Feed & Stories**:
+   - Double-tap heart like animation.
+   - Nested comments & replies.
+   - Interactive Stories tray with gradient story rings.
+
+4. **🎬 Reels Video Player**:
+   - Full-height vertical video scrolling feed with sound controls and live like counts.
+
+5. **💬 Real-Time Messaging & Group Chats**:
+   - Direct messages with instant AI echo simulation.
+   - Image & video attachments.
+
+6. **📞 WebRTC Voice & Video Calls**:
+   - Incoming call notification dialogs.
+   - RTCPeerConnection P2P media streams.
+   - Mute mic, Camera flip/toggle, Screen sharing, Call timer, and End Call actions.
+
+7. **👤 Enhanced Profile & Settings**:
+   - Cover photo & avatar customization.
+   - Highlights stories tray (*Travel ✈️*, *Coding 💻*, *Vibes ✨*).
+   - Posts grid with ❤️ Likes and 💬 Comments count on hover.
+   - Settings & **Log Out** modal.
+
+8. **🛡️ Admin Moderation Dashboard**:
+   - User statistics, active user metrics, user ban/delete, and report tickets.
+
+---
+
+## 🛠️ Local Development Setup
+
+1. Install dependencies:
+   ```bash
+   npm install
+   ```
+
+2. Run local development server:
+   ```bash
+   npm run dev
+   ```
+   Open `http://localhost:3000` in your browser.
+
+3. Build production bundle:
+   ```bash
+   npm run build
+   ```
+
+---
+
+## 🗄️ Supabase Database Setup
+
+1. Go to your [Supabase Dashboard](https://supabase.com/dashboard) → Select project `rcjksdklfisxtignxevj`.
+2. Go to **SQL Editor**.
+3. Open `supabase_full_schema.sql`, paste the SQL code into the editor, and click **RUN**.
+4. All 22 database tables, triggers, and storage buckets will be created automatically!
+
+---
+
+## 🚀 GitHub Pages Automated Deployment
+
+Commit and push your changes to GitHub:
 
 ```bash
-# Using Python
-python -m http.server 8000
-
-# Or using Node.js / npx
-npx serve .
-```
-
-Open `http://localhost:8000` in your web browser.
-
----
-
-## 🗄️ Step 2: Set up Supabase Database Tables (1-Click)
-
-1. Open your [Supabase Dashboard](https://supabase.com/dashboard).
-2. Select project **`rcjksdklfisxtignxevj`**.
-3. Go to **SQL Editor** on the left menu.
-4. Open the included `supabase_schema.sql` file from this project, copy the SQL code, paste it into the SQL Editor, and click **RUN**.
-5. All database tables (`profiles`, `posts`, `likes`, `comments`, `stories`, `reels`, `messages`) and storage buckets (`posts`, `avatars`, `stories`) will be created automatically!
-
----
-
-## 🚀 Step 3: Push to GitHub Repository & Host on GitHub Pages
-
-Run these commands in PowerShell or Command Prompt inside `D:\Antigravity Social Media`:
-
-```bash
-git init
 git add .
-git commit -m "Initial commit of Antigravity Social Media web app"
+git commit -m "Deploy enterprise React TypeScript Instagram app"
 git branch -M main
 git remote add origin https://github.com/monparasahil440-jpg/Google-Sahil-Insta.git
 git push -u origin main --force
 ```
 
-### Enable GitHub Pages:
-1. Open your repository on GitHub: `https://github.com/monparasahil440-jpg/Google-Sahil-Insta`
-2. Go to **Settings** → **Pages** (on the left sidebar).
-3. Under **Build and deployment** → **Source**, select **Deploy from a branch**.
-4. Under **Branch**, select `main` branch and `/ (root)` folder, then click **Save**.
-5. In 1–2 minutes, your website will be live globally at:
-   👉 **`https://monparasahil440-jpg.github.io/Google-Sahil-Insta/`**!
-
----
-
-## 📄 License & Credits
-Built for **Antigravity Social Media**.
+GitHub Actions will automatically build the React Vite bundle and publish your live app at:
+👉 **`https://monparasahil440-jpg.github.io/Google-Sahil-Insta/`**
